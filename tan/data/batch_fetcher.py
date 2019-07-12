@@ -26,11 +26,11 @@ class BatchFetcher:
 
         curri = self._curri
         if self._loop_around:
-            endi = (curri+batch_size) % self._N
+            endi = (curri + batch_size) % self._N
         else:
             if curri >= self._N:
                 raise IndexError
-            endi = np.minimum(curri+batch_size, self._N)
+            endi = np.minimum(curri + batch_size, self._N)
         if endi < curri:  # looped around
             inds = np.concatenate((np.arange(curri, self._N), np.arange(endi)))
         else:

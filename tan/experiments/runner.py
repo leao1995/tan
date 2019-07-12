@@ -134,11 +134,12 @@ def print_value(value):
 
 
 def get_exp_name(args):
-    sorted_keys = np.sort(args.keys())
-    exp_name = reduce(lambda x, y: x+y,
-                      ['{}--{}/'.format(k, shorten(print_value(args[k])))
-                       for k in sorted_keys], '')
-    return exp_name
+    # sorted_keys = np.sort(args.keys())
+    # exp_name = reduce(lambda x, y: x+y,
+    #                   ['{}--{}/'.format(k, shorten(print_value(args[k])))
+    #                    for k in sorted_keys], '')
+    # return exp_name
+    return ''
 
 
 def make_trainer(dataset, base_save_path, base_log_path,

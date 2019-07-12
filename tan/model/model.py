@@ -146,7 +146,7 @@ class TANModel(Model):
                             (params_in, tiled_conditioning), -1)
                     return nn.fc_network(
                         params_in, self.nparams,
-                        [nhidparams]*self.param_nlayers,
+                        [nhidparams] * self.param_nlayers,
                         output_init_range=self.cond_param_irange,
                         name='cond_fc_net',
                         dropout_input=self.dropout_keep_prob is not None,
@@ -165,15 +165,15 @@ class TANModel(Model):
         # Invert to get samples back in original space.
         with tf.variable_scope(trans_scope, reuse=True):
             self.sampler = self.invmap(self.z_samples, sampler_conditioning)
-            self.sampler = tf.reshape(self.sampler, [-1]+inputs_shape)
+            self.sampler = tf.reshape(self.sampler, [-1] + inputs_shape)
         if inv_preproc is not None:
             self.sampler = inv_preproc(self.sampler)
 
         # Get likelihoods of targets.
         with tf.variable_scope('likelihoods'):
             self.nll, self.llikes = likes.make_nll_loss(
-                self.cond_params, self.cond_targets, self.logdet, self.likefunc
-            )
+                self.cond_params, self.cond_targets, self.logdet, self.likefunc,
+                conditioning=conditioning)
 
         return self.nll, self.llikes, self.sampler
 

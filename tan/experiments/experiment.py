@@ -26,13 +26,13 @@ class Experiment:
                 if fetchers.train.ndatasets > 1:
                     # Labeled data.
                     inputs_pl = tf.placeholder(
-                        tf.float32, (None, fetchers.dim[0]), 'inputs')
+                        tf.float32, (config.batch_size, fetchers.dim[0]), 'inputs')
                     conditioning_pl = tf.placeholder(
-                        tf.float32, (None, fetchers.dim[1]), 'conditioning')
+                        tf.float32, (config.batch_size, fetchers.dim[1]), 'conditioning')
                 else:
                     # Unlabeled data.
                     inputs_pl = tf.placeholder(
-                        tf.float32, (None, fetchers.dim), 'inputs')
+                        tf.float32, (config.batch_size, fetchers.dim), 'inputs')
                     conditioning_pl = None
             if config.dropout_keeprate_val is not None and \
                     config.dropout_keeprate_val < 1.0:
@@ -87,7 +87,8 @@ class Experiment:
                             summary_log_path=summary_location,
                             save_path=save_location,
                             sampler=self.sampler,
-                            nsamp=config.nsample_batches)
+                            nsamp=config.nsample_batches,
+                            samp_per_cond=config.samp_per_cond)
 
     @property
     def main(self):

@@ -69,15 +69,15 @@ def sample_mm(params_dim, base_distribution='gaussian'):
             tf.log(tf.random_uniform((batch_size, 1)))
     elif base_distribution == 'logistic':
         x = tf.random_uniform((batch_size, 1))
-        zs = tf.log(x) - tf.log(1.0-x)
+        zs = tf.log(x) - tf.log(1.0 - x)
     else:
-        raise NotImplementedError
+        raise NotImplementedError()
     # scale and shift
     mu_zs = tf.expand_dims(
         tf.gather_nd(means, inds, name='mu_zs'), -1)
     sigma_zs = tf.expand_dims(
         tf.gather_nd(sigmas, inds, name='sigma_zs'), -1)
-    samp = sigma_zs*zs + mu_zs
+    samp = sigma_zs * zs + mu_zs
     return samp
 
 
@@ -87,7 +87,6 @@ def independent_model(inputs, nparams, single_marginal=False,
     """ Independent conditional model, where the hidden state for the conditional
     of the ith dimension is a nparams length vector (independent of previous
     dimensions).
-
     Args:
         inputs: N x d real tensor of the input covariates. (Ignored, only used
             for shape information.)
@@ -108,7 +107,9 @@ def independent_model(inputs, nparams, single_marginal=False,
         sampler: function that takes in a batch size and base component
             distribution and outputs a tensor of batch_size x d of samples.
     """
+    N = tf.shape(inputs)[0]
     d = int(inputs.get_shape()[1])
+    bitmask = conditioning[:, -d:]
     if single_marginal:
         d_mod = 1
     else:
@@ -122,25 +123,26 @@ def independent_model(inputs, nparams, single_marginal=False,
             params = tf.get_variable('independent', dtype=tf.float32,
                                      trainable=True,
                                      initializer=tf.zeros((1, d_mod, nparams)))
+        if single_marginal:
+            params = tf.tile(params, [1, d, 1])
+        params = tf.tile(params, [N, 1, 1])
         if param_func is not None:
             with tf.variable_scope('param_func'):
                 params = param_func(params, conditioning)
+        if not single_marginal:
+            # move unobserved parts to the front
+            ind = tf.contrib.framework.argsort(
+                1. - bitmask, axis=-1, direction='DESCENDING', stable=True)
+            params = tf.batch_gather(params, ind)
 
     # sampling code
     def sampler(batch_size, base_distribution='gaussian', conditioning=None):
+        batch_size = batch_size if conditioning is None else tf.shape(conditioning)[0]
         with tf.variable_scope(scope, reuse=True):
             # assuming padding with -1 to start.
             y_dims = []
-            params_sqz = tf.squeeze(params, 0)
             for j in range(d):
-                if single_marginal:
-                    params_dim = params_sqz
-                else:
-                    params_dim = tf.expand_dims(tf.gather(params_sqz, j), 0)
-                if param_func is not None:
-                    with tf.variable_scope('param_func', reuse=True):
-                        params_dim = param_func(params_dim, conditioning)
-                params_dim = tf.tile(params_dim, [batch_size, 1])
+                params_dim = tf.gather(params, j, axis=1)
                 input_ = sample_mm(params_dim,
                                    base_distribution=base_distribution)
                 y_dims.append(input_)
@@ -159,7 +161,6 @@ def cond_model(inputs, nparams, tied_model=False, tied_bias=True,
     \[
         h_i = W^{(i)} x_{<i} + b^{(i)}
     \]
-
     Args:
         inputs: N x d real tensor of the input covariates.
         nparams: int of number of parameters to output per dimension.
@@ -179,6 +180,7 @@ def cond_model(inputs, nparams, tied_model=False, tied_bias=True,
             distribution and outputs a tensor of batch_size x d of samples.
     """
     # Set up conditioning values if not used.
+    raise NotImplementedError()
     param_conditioning = conditioning
     if not use_conditioning:
         conditioning = None
@@ -188,21 +190,22 @@ def cond_model(inputs, nparams, tied_model=False, tied_bias=True,
         if tied_model:
             W = tf.get_variable('W', (d, nparams), dtype=tf.float32)
             Ws = [
-                tf.slice(W, [0, 0], [j+1, -1], name='W{}'.format(j))
+                tf.slice(W, [0, 0], [j + 1, -1], name='W{}'.format(j))
                 for j in range(d)
             ]
         else:
             Ws = [
-                tf.get_variable('W{}'.format(j), (j+1, nparams),
+                tf.get_variable('W{}'.format(j), (j + 1, nparams),
                                 dtype=tf.float32)
                 for j in range(d)
             ]
         # Get the biases.
         if tied_bias:
-            bs = [tf.get_variable('b', (1, nparams), dtype=tf.float32)]*d
+            bs = [tf.get_variable('b', (1, nparams), dtype=tf.float32)] * d
         else:
             bs = [
-                tf.get_variable('b{}'.format(j), (1, nparams), dtype=tf.float32)
+                tf.get_variable('b{}'.format(
+                    j), (1, nparams), dtype=tf.float32)
                 for j in range(d)
             ]
         # Get weights for conditioning covariate contributions.
@@ -228,7 +231,7 @@ def cond_model(inputs, nparams, tied_model=False, tied_bias=True,
             if conditioning is not None and not tied_model:
                 params_j += tf.matmul(conditioning, W_conds[j])
             params_j += \
-                tf.matmul(tf.slice(inputs, [0, 0], [-1, j+1]), Ws[j]) + bs[j]
+                tf.matmul(tf.slice(inputs, [0, 0], [-1, j + 1]), Ws[j]) + bs[j]
             outs.append(tf.expand_dims(params_j, 1))
         params = tf.concat(outs, 1, 'params')
         if param_func is not None:
@@ -267,7 +270,6 @@ def rnn_model(inputs, nparams, rnn_class, param_func=None, conditioning=None,
     \[
         h_i = g(x_{i-1}, h_{i-1})
     \]
-
     Args:
         inputs: N x d real tensor of the input covariates.
         nparams: int of number of parameters to output per dimension.
@@ -286,6 +288,9 @@ def rnn_model(inputs, nparams, rnn_class, param_func=None, conditioning=None,
             of each dimension.
         sampler: function that takes in a batch size and base component
             distribution and outputs a tensor of batch_size x d of samples.
+
+        params[:, :seq_len] is what we are eventually gonna use to get likelihood
+        sampler[:, :seq_len] is valid samples
     """
     param_conditioning = conditioning
     if not use_conditioning:
@@ -311,6 +316,8 @@ def rnn_model(inputs, nparams, rnn_class, param_func=None, conditioning=None,
     # sampling code
     def sampler(batch_size, base_distribution='gaussian', conditioning=None):
         param_conditioning = conditioning
+        batch_size = batch_size if conditioning is None else tf.shape(conditioning)[
+            0]
         if not use_conditioning:
             conditioning = None
         with tf.variable_scope(scope, reuse=True):

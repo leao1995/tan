@@ -4,6 +4,7 @@ from ..model import transforms as trans
 from ..model import likelihoods as likes
 from ..model import conditionals as conds
 from ..rnn import cells
+from functools import partial
 
 
 # TODO: rename.
@@ -48,7 +49,7 @@ class RedConfig:
         self.tile_chans = misc.get_default(kwargs, 'tile_chans', 1)
         # Additive transformation parameters.
         self.add_hidden_sizes = misc.get_default(
-            kwargs, 'add_hidden_sizes', [256]*2)
+            kwargs, 'add_hidden_sizes', [256] * 2)
         self.add_irange = misc.get_default(
             kwargs, 'add_irange', None)
         self.add_output_irange = misc.get_default(
@@ -63,7 +64,7 @@ class RedConfig:
         self.do_final_cond_trans = misc.get_default(
             kwargs, 'do_final_cond_trans', False)
         self.cond_hidden_sizes = misc.get_default(
-            kwargs, 'cond_hidden_sizes', [256]*2)
+            kwargs, 'cond_hidden_sizes', [256] * 2)
         self.cond_irange = misc.get_default(
             kwargs, 'cond_irange', None)
         self.cond_output_irange = misc.get_default(
@@ -113,18 +114,24 @@ class RedConfig:
                 'state_activation': self.trans_state_activation},
             trans.rnn_coupling: {
                 'rnn_class': self.rnn_coupling_class},
+            trans.cond_rnn_coupling: {
+                'rnn_class': self.rnn_coupling_class},
             trans.negate: {},
             trans.reverse: {},
+            trans.cond_reverse: {},
             trans.log_rescale: {},
+            trans.cond_log_rescale: {},
             trans.shift: {},
             trans.leaky_transformation: {
+                'alpha': self.relu_alpha},
+            trans.cond_leaky_transformation: {
                 'alpha': self.relu_alpha},
         }
 
         # Likelihood parameters.
         #
         self.ncomps = misc.get_default(kwargs, 'ncomps', 40)
-        self.nparams = 3*self.ncomps
+        self.nparams = 3 * self.ncomps
         self.base_distribution = misc.get_default(
             kwargs, 'base_distribution', 'gaussian')
         self.likefunc = misc.get_default(
@@ -141,10 +148,11 @@ class RedConfig:
                                                 False)
         self.standard = misc.get_default(kwargs, 'standard', False)
         # Conditional model.
-        self.cond_tied_model = misc.get_default(kwargs, 'cond_tied_model', True)
+        self.cond_tied_model = misc.get_default(
+            kwargs, 'cond_tied_model', True)
         # RNN Model.
         self.rnn_params = misc.get_default(
-            kwargs, 'rnn_params', {'nunits': 256, 'num_layers': 1})
+            kwargs, 'rnn_params', {'units': 256, 'num_layers': 1})
         self.rnn_type = misc.get_default(kwargs, 'rnn_type', cells.GRUCell)
         self.rnn_class = self.rnn_type(**self.rnn_params)
         # Conditional model arguments.
@@ -152,7 +160,8 @@ class RedConfig:
             conds.independent_model: {'single_marginal': self.single_marginal,
                                       'standard': self.standard},
             conds.cond_model: {'tied_model': self.cond_tied_model},
-            conds.rnn_model: {'rnn_class': self.rnn_class}
+            conds.rnn_model: {'rnn_class': self.rnn_class},
+            # conds.multiple_rnns_model: {'rnn_class': self.rnn_class},
         }
         # Orderless methods that get all covariates as inputs.
         self.orderless_models = set([])  # TODO: remove
@@ -174,7 +183,8 @@ class RedConfig:
             kwargs, 'trans_conditioning', True)
         self.conditional_conditioning = misc.get_default(
             kwargs, 'conditional_conditioning', True)
-        self.fc_conditioning = misc.get_default(kwargs, 'fc_conditioning', True)
+        self.fc_conditioning = misc.get_default(
+            kwargs, 'fc_conditioning', True)
 
         # Sampling Options.
         #
@@ -220,7 +230,7 @@ class RedConfig:
         self.downsample = misc.get_default(kwargs, 'downsample', 1)
         self.do_resize = misc.get_default(kwargs, 'do_resize', True)
         self.center_crop = misc.get_default(kwargs, 'center_crop', None)
-        self.do_bw = misc.get_default(kwargs,  'do_bw', False)
+        self.do_bw = misc.get_default(kwargs, 'do_bw', False)
         self.do_read_logit = misc.get_default(kwargs, 'do_read_logit', False)
         self.do_init_logit = misc.get_default(kwargs, 'do_init_logit', False)
         self.seq_feats = misc.get_default(kwargs, 'seq_feats', 256)
@@ -247,7 +257,8 @@ class RedConfig:
 
         # Embeddings.
         self.embed_size = misc.get_default(kwargs, 'embed_size', 256)
-        self.embed_layers = misc.get_default(kwargs, 'embed_layers', [256, 256])
+        self.embed_layers = misc.get_default(
+            kwargs, 'embed_layers', [256, 256])
         self.embed_irange = misc.get_default(kwargs, 'embed_irange', 1e-6)
         self.embed_activation = misc.get_default(
             kwargs, 'embed_activation', tf.nn.relu)
@@ -269,8 +280,7 @@ class RedConfig:
                 irange=self.cond_irange, output_irange=self.cond_output_irange)
         if self.trans_funcs is not None:
             for func in self.trans_funcs:
-                yield lambda x: func(
-                    x, **self.transform_arguments[func])
+                yield partial(func, **self.transform_arguments[func])
         if self.do_final_cond_trans:
             yield lambda x, c: trans.conditioning_transformation(
                 x, c, hidden_sizes=self.cond_hidden_sizes,

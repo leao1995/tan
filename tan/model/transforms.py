@@ -13,7 +13,7 @@
 
 import tensorflow as tf
 import numpy as np
-import scipy.linalg as linalg # noqa
+import scipy.linalg as linalg  # noqa
 from . import simple_rnn as simple
 from ..utils import nn
 
@@ -31,6 +31,37 @@ def reverse(x, name='reverse'):
         with tf.variable_scope(scope, reuse=True):
             x = tf.reverse(z, [-1])
             return x
+    return z, logdet, invmap
+
+
+def cond_reverse(x, conditioning, name='cond_reverse'):
+    '''
+    reverse based on bitmask
+    '''
+    d = tf.shape(x)[1]
+    with tf.variable_scope(name) as scope:
+        bitmask = conditioning[:, d:]
+        sorted_bitmask = tf.contrib.framework.sort(
+            1. - bitmask, axis=-1, direction='DESCENDING')
+        m = tf.reverse(sorted_bitmask, [-1])
+        ind = tf.contrib.framework.argsort(
+            m, axis=-1, direction='DESCENDING', stable=True)
+        z = tf.reverse(x, [-1])
+        z = tf.batch_gather(z, ind)
+        logdet = 0.0
+
+    def invmap(z, conditioning):
+        with tf.variable_scope(scope, reuse=True):
+            bitmask = conditioning[:, d:]
+            sorted_bitmask = tf.contrib.framework.sort(
+                1. - bitmask, axis=-1, direction='DESCENDING')
+            m = tf.reverse(sorted_bitmask, [-1])
+            ind = tf.contrib.framework.argsort(
+                m, axis=-1, direction='DESCENDING', stable=True)
+            x = tf.reverse(z, [-1])
+            x = tf.batch_gather(x, ind)
+            return x
+
     return z, logdet, invmap
 
 
@@ -55,9 +86,10 @@ def invperm(perm):
         inverse[p] = i
     return inverse
 
-
 # %% Linear mapping functions.
 #
+
+
 def get_LU_map(mat_params, b):
     """Make the matrix for linear map y^t = x^t (L U) + b^t.
     Args:
@@ -74,7 +106,7 @@ def get_LU_map(mat_params, b):
             # Unpack the mat_params and U matrices
             d = int(mat_params.get_shape()[0])
             U = tf.matrix_band_part(mat_params, 0, -1)
-            L = tf.eye(d) + mat_params*tf.constant(
+            L = tf.eye(d) + mat_params * tf.constant(
                 np.tril(np.ones((d, d), dtype=np.float32), -1),
                 dtype=tf.float32, name='tril'
             )
@@ -89,7 +121,8 @@ def get_LU_map(mat_params, b):
                 Ut = tf.transpose(U)
                 Lt = tf.transpose(L)
                 yt = tf.transpose(y)
-                sol = tf.matrix_triangular_solve(Ut, yt-tf.expand_dims(b, -1))
+                sol = tf.matrix_triangular_solve(
+                    Ut, yt - tf.expand_dims(b, -1))
                 x = tf.transpose(
                     tf.matrix_triangular_solve(Lt, sol, lower=False)
                 )
@@ -148,6 +181,133 @@ def linear_map(x, init_mat_params=None, init_b=None, mat_func=get_LU_map,
                                 trainable=trainable_b)
         A, logdet, invmap = mat_func(mat_params, b)
         z = tf.matmul(x, A) + tf.expand_dims(b, 0)
+
+
+def linear_cond_values(conditioning, d, hidden_sizes=[256]):
+    # run conditioning information through fully connected layer
+    with tf.variable_scope("linear_conditional_matrix_param", reuse=tf.AUTO_REUSE):
+        mat = nn.fc_network(
+            conditioning, d, hidden_sizes=hidden_sizes, name='mlp', output_init_range=4,
+        )
+        mat = tf.matrix_diag(mat)
+    with tf.variable_scope("linear_conditional_bias", reuse=tf.AUTO_REUSE):
+        bias = nn.fc_network(
+            conditioning, d, hidden_sizes=hidden_sizes, name='mlp', output_init_range=1e-2
+        )
+    return tf.squeeze(mat), tf.squeeze(bias)
+
+
+def linear_conditional_matrix(conditioning, mat_params):
+    d = int(conditioning.get_shape()[-1] / 2)
+    set_size = conditioning.get_shape()[0]
+    mat_cond, bias_cond = linear_cond_values(
+        tf.expand_dims(conditioning, axis=0), d)
+    A = tf.tile(tf.expand_dims(mat_params, axis=0),
+                [set_size, 1, 1]) + mat_cond
+    bitmask = 1 - conditioning[:, d:]
+    order = tf.argsort(bitmask, direction='DESCENDING')
+    t = tf.batch_gather(tf.matrix_diag(bitmask), order)
+    return tf.matmul(tf.matmul(t, A), tf.transpose(t, perm=[0, 2, 1])), bias_cond
+
+# Conditional linear transform for data imputation
+
+
+def get_cond_LU_map(mat_params, b, conditioning):
+    """Make the matrix for linear map y^t = x^t (L U) + b^t.
+    Args:
+        mat_params: d x d array of matrix parameters. Contains lower and upper
+            matrices L, U. L has unit diagonal.
+        b: d length array of biases
+    Returns:
+        A: the linear map matrix resulting from the multiplication of L and U.
+        logdet: the log determinant of the Jacobian for this transformation.
+        invmap: function that computes the inverse transformation.
+    """
+    with tf.variable_scope('LU'):
+        with tf.variable_scope('unpack'):
+            # Unpack the mat_params and U matrices
+            d = int(mat_params.get_shape()[1])
+            U = tf.matrix_band_part(mat_params, 0, -1)
+            L = tf.eye(d) + mat_params - U
+            A = tf.matmul(L, U, name='A')
+        with tf.variable_scope('logdet'):
+            # Get the log absolute determinate
+            mask = tf.sort(1 - conditioning[:, d:], direction='DESCENDING')
+            logdet = tf.reduce_sum(
+                tf.log(tf.abs(tf.matrix_diag_part(U)) + (1 - mask)),
+                axis=1,
+            )
+
+    return A, logdet, U, L
+
+
+def cond_linear_map(x, conditioning, mat_func=get_cond_LU_map, trainable_A=True,
+                    trainable_b=True, irange=1e-10, name='cond_linear_map'):
+    """Return the linearly transformed, y^t = x^t * mat_func(mat_params) + b^t,
+    log determinant of Jacobian and inverse map.
+    Args:
+        x: N x d real tensor of covariates to be linearly transformed.
+        conditioning: 
+        mat_func: function that returns matrix, log determinant, and inverse
+            for linear mapping (see get_LU_map).
+        trainable_A: boolean indicating whether to train matrix for linear
+            map.
+        trainable_b: boolean indicating whether to train bias for linear
+            map.
+        name: variable scope.
+    Returns:
+        z: N x d linearly transformed covariates.
+        logdet: scalar, the log determinant of the Jacobian for transformation.
+        invmap: function that computes the inverse transformation.
+    """
+    if irange is not None:
+        initializer = tf.random_uniform_initializer(-irange, irange)
+    else:
+        initializer = None
+    with tf.variable_scope(name, initializer=initializer) as scope:
+        d = int(x.get_shape()[-1])
+        # create weight matrix
+        mat_params = tf.get_variable(
+            'mat_params', dtype=tf.float32,
+            initializer=tf.eye(d, dtype=tf.float32), trainable=trainable_A
+        )
+        mats, b = linear_conditional_matrix(conditioning, mat_params)
+        A, logdet, _, _ = mat_func(mats, b, conditioning)
+        z = tf.einsum('ai,aik->ak', x, A, name="mat_mul") + b
+
+        # Inverse map
+        def invmap(z, conditioning):
+            with tf.variable_scope(scope):
+                mats, b = linear_conditional_matrix(conditioning, mat_params)
+                _, _, U, L = mat_func(
+                    mats, b, conditioning
+                )
+            with tf.variable_scope('invmap'):
+                dim = z.get_shape()[0]
+                Ut = tf.split(tf.transpose(U, perm=[0, 2, 1]), dim)
+                Lt = tf.split(tf.transpose(L, perm=[0, 2, 1]), dim)
+                zt = tf.split(z - b, dim)
+                cond_dim = tf.reduce_sum(
+                    tf.split(1 - conditioning, 2, axis=1)[1], axis=1
+                )
+                x_vals = []
+                for i in range(dim):
+                    sol = tf.matrix_triangular_solve(
+                        tf.slice(tf.squeeze(Ut[i]), [0, 0], [
+                                 cond_dim[i], cond_dim[i]]),
+                        tf.slice(tf.transpose(zt[i]), [
+                                 0, 0], [cond_dim[i], 1]),
+                    )
+                    x = tf.transpose(
+                        tf.matrix_triangular_solve(
+                            tf.slice(tf.squeeze(Lt[i]), [0, 0], [
+                                     cond_dim[i], cond_dim[i]]),
+                            sol, lower=False
+                        )
+                    )
+                    x = tf.pad(x, [[0, 0], [0, d - cond_dim[i]]])
+                    x_vals.append(x)
+                return tf.stack(x_vals)
     return z, logdet, invmap
 
 
@@ -202,8 +362,8 @@ def simple_rnn_transform(x, state_size, alpha=None, state_activation=None,
         # log determinant, can get according to the number of negatives in
         # output.
         num_negative = tf.reduce_sum(tf.cast(tf.less(y, 0.0), tf.float32), 1)
-        logdet = d*tf.log(tf.abs(cell._w_z_y)) + \
-            num_negative*tf.log(cell._alpha)
+        logdet = d * tf.log(tf.abs(cell._w_z_y)) + \
+            num_negative * tf.log(cell._alpha)
         invmap = cell.inverse
     return y, logdet, invmap
 
@@ -261,12 +421,65 @@ def rnn_coupling(x, rnn_class, name='rnn_coupling'):
     return z, logdet, invmap
 
 
+def cond_rnn_coupling(x, conditioning, rnn_class, name='cond_rnn_coupling'):
+    """
+    RNN coupling where the covariates are transformed as z_i = x_i + m(s_i).
+    Args:
+        x: N x d input covariates.
+        rnn_class: function the returns rnn_cell with output of spcified size,
+            e.g. rnn_class(nout).
+        name: variable scope.
+    Returns:
+        z: N x d rnn transformed covariates.
+        logdet: N tensor of log determinant of the Jacobian for transformation.
+        invmap: function that computes the inverse transformation.
+    """
+    with tf.variable_scope(name) as scope:
+        # Get RNN cell for transforming single covariates at a time.
+        rnn_cell = rnn_class(1)  # TODO: change from 1 to 2 for optional scale
+        # Shapes.
+        batch_size = tf.shape(x)[0]
+        d = int(x.get_shape()[1])
+        # Initial variables.
+        state = rnn_cell.zero_state(batch_size, dtype=tf.float32)
+        x_t = -tf.ones((batch_size, 1), dtype=tf.float32)
+        z_list = []
+        for t in range(d):
+            inp = tf.concat([x_t, conditioning], axis=1)
+            m_t, state = rnn_cell(inp, state)
+            x_t = tf.expand_dims(x[:, t], -1)
+            z_t = x_t + m_t
+            z_list.append(z_t)
+        z = tf.concat(z_list, 1)
+        # Jacobian is lower triangular with unit diagonal.
+        logdet = 0.0
+
+    # inverse
+    def invmap(z, conditioning):
+        with tf.variable_scope(scope, reuse=True):
+            # Shapes.
+            batch_size = tf.shape(z)[0]
+            # Initial variables.
+            state = rnn_cell.zero_state(batch_size, dtype=tf.float32)
+            x_t = -tf.ones((batch_size, 1), dtype=tf.float32)
+            x_list = []
+            for t in range(d):
+                inp = tf.concat([x_t, conditioning], axis=1)
+                m_t, state = rnn_cell(inp, state)
+                z_t = tf.expand_dims(z[:, t], -1)
+                x_t = z_t - m_t
+                x_list.append(x_t)
+            x = tf.concat(x_list, 1)
+        return x
+    return z, logdet, invmap
+
+
 def leaky_relu(x, alpha):
-    return tf.maximum(x, alpha*x)  # Assumes alpha <= 1.0
+    return tf.maximum(x, alpha * x)  # Assumes alpha <= 1.0
 
 
 def general_leaky_relu(x, alpha):
-    return tf.nn.relu(x) - alpha*tf.nn.relu(-x)
+    return tf.nn.relu(x) - alpha * tf.nn.relu(-x)
 
 
 def leaky_transformation(x, alpha=None):
@@ -276,10 +489,29 @@ def leaky_transformation(x, alpha=None):
             tf.get_variable('log_alpha', initializer=5.0, dtype=tf.float32))
     z = leaky_relu(x, alpha)
     num_negative = tf.reduce_sum(tf.cast(tf.less(z, 0.0), tf.float32), 1)
-    logdet = num_negative*tf.log(alpha)
+    logdet = num_negative * tf.log(alpha)
 
     def invmap(z):
-        return tf.minimum(z, z/alpha)
+        return tf.minimum(z, z / alpha)
+
+    return z, logdet, invmap
+
+
+def cond_leaky_transformation(x, conditioning, alpha=None):
+    d = tf.shape(x)[1]
+    if alpha is None:
+        alpha = tf.nn.sigmoid(
+            tf.get_variable('log_alpha', initializer=5.0, dtype=tf.float32))
+    z = leaky_relu(x, alpha)
+    num_negative = tf.cast(tf.less(z, 0.0), tf.float32)
+    bitmask = conditioning[:, d:]
+    sorted_bitmask = tf.contrib.framework.sort(
+        1. - bitmask, axis=-1, direction='DESCENDING')
+    num_negative = tf.reduce_sum(num_negative * sorted_bitmask, axis=1)
+    logdet = num_negative * tf.log(alpha)
+
+    def invmap(z, conditioning):
+        return tf.minimum(z, z / alpha)
 
     return z, logdet, invmap
 
@@ -296,7 +528,7 @@ class Simple1dCell(tf.contrib.rnn.RNNCell):
         self._output_dims = 1
         if alpha is None:
             assert max_alpha <= 1.0
-            self._alpha = max_alpha*tf.nn.sigmoid(
+            self._alpha = max_alpha * tf.nn.sigmoid(
                 tf.get_variable('log_alpha', initializer=5.0, dtype=tf.float32))
             # self._alpha = tf.minimum(
             #     tf.exp(tf.get_variable('log_alpha', initializer=0.0,
@@ -340,7 +572,8 @@ class Simple1dCell(tf.contrib.rnn.RNNCell):
                 dtype=tf.float32,
                 initializer=tf.zeros((1,), tf.float32))
             # State parameters.
-            self._w_h_y = tf.get_variable('w_h_y', shape=(1,), dtype=tf.float32)
+            self._w_h_y = tf.get_variable(
+                'w_h_y', shape=(1,), dtype=tf.float32)
             self._w_h_h = tf.get_variable(
                 'w_h_h',  # shape=(self.state_size, self.state_size),
                 dtype=tf.float32,
@@ -350,11 +583,11 @@ class Simple1dCell(tf.contrib.rnn.RNNCell):
                 dtype=tf.float32,
                 initializer=tf.zeros((self._state_size,), dtype=tf.float32))
             output = leaky_relu(
-                self._w_z_y*inputs + tf.matmul(state, self._w_z_h) +
+                self._w_z_y * inputs + tf.matmul(state, self._w_z_h) +
                 self._b_z,
                 self._alpha)
             out_state = self._state_activation(
-                self._w_h_y*inputs + tf.matmul(state, self._w_h_h) + self._b_h)
+                self._w_h_y * inputs + tf.matmul(state, self._w_h_h) + self._b_h)
         return output, out_state
 
     def transform(self, inputs, scope='rnn_transform'):
@@ -384,12 +617,12 @@ class Simple1dCell(tf.contrib.rnn.RNNCell):
         with tf.variable_scope(scope or type(self).__name__):
             for t in range(d):
                 z_t = tf.expand_dims(output[:, t], -1)
-                z_t_scaled = tf.minimum(z_t, z_t/self._alpha)
+                z_t_scaled = tf.minimum(z_t, z_t / self._alpha)
                 y_t = (z_t_scaled - tf.matmul(state, self._w_z_h) - self._b_z)
                 y_t /= self._w_z_y
                 y_list.append(y_t)
                 state = self._state_activation(
-                    self._w_h_y*y_t + tf.matmul(state, self._w_h_h) +
+                    self._w_h_y * y_t + tf.matmul(state, self._w_h_h) +
                     self._b_h
                 )
             y = tf.concat(y_list, 1)
@@ -408,7 +641,7 @@ def additive_coupling(x, hidden_sizes, irange=None, output_irange=None,
         initializer = None
     with tf.variable_scope(name, initializer=initializer) as scope:
         d = int(x.get_shape()[1])
-        d_half = d/2
+        d_half = d / 2
         x_1 = tf.slice(x, [0, 0], [-1, d_half], 'x_1')
         x_2 = tf.slice(x, [0, d_half], [-1, -1], 'x_2')
         m = nn.fc_network(x_2, d_half, hidden_sizes=hidden_sizes,
@@ -471,7 +704,7 @@ def conditioning_transformation(x, conditioning, hidden_sizes,
         initializer = None
     with tf.variable_scope(name, initializer=initializer) as scope:
         d = int(x.get_shape()[1])
-        ms = nn.fc_network(conditioning, 2*d, hidden_sizes=hidden_sizes,
+        ms = nn.fc_network(conditioning, 2 * d, hidden_sizes=hidden_sizes,
                            output_init_range=output_irange,
                            activation=activation, name='ms')
         m, s = tf.split(ms, 2, 1)
@@ -481,11 +714,11 @@ def conditioning_transformation(x, conditioning, hidden_sizes,
     # inverse
     def invmap(y, conditioning):
         with tf.variable_scope(scope, reuse=True):
-            ms = nn.fc_network(conditioning, 2*d, hidden_sizes=hidden_sizes,
+            ms = nn.fc_network(conditioning, 2 * d, hidden_sizes=hidden_sizes,
                                output_init_range=output_irange,
                                activation=activation, name='ms')
             m, s = tf.split(ms, 2, 1)
-            x = tf.div(y-m, tf.exp(s))
+            x = tf.div(y - m, tf.exp(s))
             return x
 
     return y, logdet, invmap
@@ -499,7 +732,7 @@ def rescale(x, init_constant=None, name='rescale'):
         d = int(x.get_shape()[1])
         if init_constant is not None:
             s = tf.get_variable(
-                's', initializer=init_constant*tf.ones((1, d)),
+                's', initializer=init_constant * tf.ones((1, d)),
                 dtype=tf.float32)
         else:
             s = tf.get_variable('s', shape=(1, d), dtype=tf.float32)
@@ -535,6 +768,38 @@ def log_rescale(x, init_zeros=True, name='rescale'):
             # TODO: neccesaary?
             s = tf.get_variable('s', shape=(1, d), dtype=tf.float32)
             x = tf.divide(y, tf.exp(s), name='y_inv')
+            return x
+
+    return y, logdet, invmap
+
+
+def cond_log_rescale(x, conditioning, init_zeros=True, name='cond_rescale'):
+    with tf.variable_scope(name) as scope:
+        N = tf.shape(x)[0]
+        d = int(x.get_shape()[1])
+        if init_zeros:
+            s = tf.get_variable(
+                's', initializer=tf.zeros((1, d)), dtype=tf.float32)
+        else:
+            s = tf.get_variable('s', shape=(1, d), dtype=tf.float32)
+
+        bitmask = conditioning[:, d:]
+        ind = tf.contrib.framework.argsort(
+            1 - bitmask, axis=-1, direction='DESCENDING', stable=True)
+        s_tiled = tf.tile(s, [N, 1])
+        su = tf.batch_gather(s_tiled, ind)
+        y = tf.multiply(x, tf.exp(su), name='y')
+        logdet = tf.reduce_sum(s_tiled * (1 - bitmask), axis=-1)
+
+    def invmap(y, conditioning):
+        with tf.variable_scope(scope, reuse=True):
+            s = tf.get_variable('s', shape=(1, d), dtype=tf.float32)
+            bitmask = conditioning[:, d:]
+            ind = tf.contrib.framework.argsort(
+                1 - bitmask, axis=-1, direction='DESCENDING', stable=True)
+            s_tiled = tf.tile(s, [N, 1])
+            su = tf.batch_gather(s_tiled, ind)
+            x = tf.divide(y, tf.exp(su), name='y_inv')
             return x
 
     return y, logdet, invmap
@@ -583,21 +848,21 @@ def logit_transform(x, alpha=0.05, max_val=256.0, name='logit_transform',
     print('Using logit transform')
 
     def logit(x):
-        return tf.log(x) - tf.log(1.0-x)
+        return tf.log(x) - tf.log(1.0 - x)
 
     with tf.variable_scope(name) as scope:
-        sig = alpha + (1.0-alpha)*x/max_val
+        sig = alpha + (1.0 - alpha) * x / max_val
         z = logit(sig)
         logdet = tf.reduce_sum(
-            tf.log(1-alpha)-tf.log(sig)-tf.log(1.0-sig)-tf.log(max_val), 1)
+            tf.log(1 - alpha) - tf.log(sig) - tf.log(1.0 - sig) - tf.log(max_val), 1)
         if logdet_mult is not None:
-            logdet = logdet_mult*logdet
+            logdet = logdet_mult * logdet
 
     # inverse
     def invmap(z):
         with tf.variable_scope(scope, reuse=True):
-            arg = 1.0/(1.0 + tf.exp(-z))
-            return (arg-alpha)*max_val/(1.0-alpha)
+            arg = 1.0 / (1.0 + tf.exp(-z))
+            return (arg - alpha) * max_val / (1.0 - alpha)
     return z, logdet, invmap
 
 
@@ -634,10 +899,10 @@ def transformer(inputs, transformations, conditioning=None):
 
     # Make inverse by stacking inverses in reverse order.
     ntrans = len(invmaps)
-    print(invmaps[::-1])
+    # print(invmaps[::-1])
 
     def invmap(z, conditioning=None):
-        for i in range(ntrans-1, -1, -1):
+        for i in range(ntrans - 1, -1, -1):
             with tf.variable_scope('transformation_{}'.format(i)):
                 try:
                     z = invmaps[i](z, conditioning)
