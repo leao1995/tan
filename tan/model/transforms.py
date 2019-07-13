@@ -207,6 +207,7 @@ def linear_conditional_matrix(conditioning, mat_params):
     bitmask = 1 - conditioning[:, d:]
     order = tf.argsort(bitmask, direction='DESCENDING')
     t = tf.batch_gather(tf.matrix_diag(bitmask), order)
+    bias_cond = tf.squeeze(tf.matmul(t, tf.expand_dims(bias_cond, -1)))
     return tf.matmul(tf.matmul(t, A), tf.transpose(t, perm=[0, 2, 1])), bias_cond
 
 # Conditional linear transform for data imputation
