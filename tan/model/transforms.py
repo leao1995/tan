@@ -205,8 +205,10 @@ def linear_conditional_matrix(conditioning, mat_params):
     A = tf.tile(tf.expand_dims(mat_params, axis=0),
                 [set_size, 1, 1]) + mat_cond
     bitmask = 1 - conditioning[:, d:]
-    order = tf.argsort(bitmask, direction='DESCENDING')
+    order = tf.contrib.framework.argsort(
+        bitmask, direction='DESCENDING', stable=True)
     t = tf.batch_gather(tf.matrix_diag(bitmask), order)
+    bias_cond = tf.squeeze(tf.matmul(t, tf.expand_dims(bias_cond, -1)))
     return tf.matmul(tf.matmul(t, A), tf.transpose(t, perm=[0, 2, 1])), bias_cond
 
 # Conditional linear transform for data imputation
@@ -232,7 +234,8 @@ def get_cond_LU_map(mat_params, b, conditioning):
             A = tf.matmul(L, U, name='A')
         with tf.variable_scope('logdet'):
             # Get the log absolute determinate
-            mask = tf.sort(1 - conditioning[:, d:], direction='DESCENDING')
+            mask = tf.contrib.framework.sort(
+                1 - conditioning[:, d:], direction='DESCENDING')
             logdet = tf.reduce_sum(
                 tf.log(tf.abs(tf.matrix_diag_part(U)) + (1 - mask)),
                 axis=1,
@@ -283,31 +286,20 @@ def cond_linear_map(x, conditioning, mat_func=get_cond_LU_map, trainable_A=True,
                     mats, b, conditioning
                 )
             with tf.variable_scope('invmap'):
-                dim = z.get_shape()[0]
-                Ut = tf.split(tf.transpose(U, perm=[0, 2, 1]), dim)
-                Lt = tf.split(tf.transpose(L, perm=[0, 2, 1]), dim)
-                zt = tf.split(z - b, dim)
-                cond_dim = tf.reduce_sum(
-                    tf.split(1 - conditioning, 2, axis=1)[1], axis=1
-                )
-                x_vals = []
-                for i in range(dim):
-                    sol = tf.matrix_triangular_solve(
-                        tf.slice(tf.squeeze(Ut[i]), [0, 0], [
-                                 cond_dim[i], cond_dim[i]]),
-                        tf.slice(tf.transpose(zt[i]), [
-                                 0, 0], [cond_dim[i], 1]),
-                    )
-                    x = tf.transpose(
-                        tf.matrix_triangular_solve(
-                            tf.slice(tf.squeeze(Lt[i]), [0, 0], [
-                                     cond_dim[i], cond_dim[i]]),
-                            sol, lower=False
-                        )
-                    )
-                    x = tf.pad(x, [[0, 0], [0, d - cond_dim[i]]])
-                    x_vals.append(x)
-                return tf.stack(x_vals)
+                Ut = tf.transpose(U, perm=[0, 2, 1])
+                Lt = tf.transpose(L, perm=[0, 2, 1])
+                zt = tf.expand_dims(z - b, axis=-1)
+                bitmask = conditioning[:, d:]
+                bitmask = tf.contrib.framework.sort(
+                    bitmask, direction='ASCENDING')
+                t = tf.matrix_diag(bitmask)
+                Ut = Ut + t
+                Lt = Lt + t
+                sol = tf.matrix_triangular_solve(Ut, zt)
+                x = tf.matrix_triangular_solve(Lt, sol, lower=False)
+                x = tf.squeeze(x, axis=-1)
+
+                return x
     return z, logdet, invmap
 
 

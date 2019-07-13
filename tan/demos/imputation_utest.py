@@ -65,6 +65,26 @@ def test_transformations(xs, cond):
         err = np.mean(np.abs(xs - inv))
         print('cond_rnn_coupling:', err)
 
+    # cond_linear
+    inputs_pl = tf.placeholder(
+        tf.float32, (1024, xs.shape[1]), 'inputs'
+    )
+    conditioning_pl = tf.placeholder(
+        tf.float32, (1024, cond.shape[1]), 'conditioning'
+    )
+    z, det, invmap = trans.cond_linear_map(
+        inputs_pl, conditioning_pl)
+    x_rec = invmap(z, conditioning_pl)
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        xs = xs[:1024]
+        cond = cond[:1024]
+        inv = sess.run(x_rec,
+                       feed_dict={inputs_pl: xs, conditioning_pl: cond}
+                       )
+        err = np.mean(np.abs(xs - inv))
+        print('cond_linear:', err)
+
 
 def test_conditionals(xs, cond):
     inputs_pl = tf.placeholder(
