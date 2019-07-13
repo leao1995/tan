@@ -278,37 +278,24 @@ def cond_linear_map(x, conditioning, mat_func=get_cond_LU_map, trainable_A=True,
 
         # Inverse map
         def invmap(z, conditioning):
-            with tf.variable_scope(scope):
-                mats, b = linear_conditional_matrix(conditioning, mat_params)
-                _, _, U, L = mat_func(
-                    mats, b, conditioning
-                )
-            with tf.variable_scope('invmap'):
-                dim = z.get_shape()[0]
-                Ut = tf.split(tf.transpose(U, perm=[0, 2, 1]), dim)
-                Lt = tf.split(tf.transpose(L, perm=[0, 2, 1]), dim)
-                zt = tf.split(z - b, dim)
-                cond_dim = tf.reduce_sum(
-                    tf.split(1 - conditioning, 2, axis=1)[1], axis=1
-                )
-                x_vals = []
-                for i in range(dim):
-                    sol = tf.matrix_triangular_solve(
-                        tf.slice(tf.squeeze(Ut[i]), [0, 0], [
-                                 cond_dim[i], cond_dim[i]]),
-                        tf.slice(tf.transpose(zt[i]), [
-                                 0, 0], [cond_dim[i], 1]),
-                    )
-                    x = tf.transpose(
-                        tf.matrix_triangular_solve(
-                            tf.slice(tf.squeeze(Lt[i]), [0, 0], [
-                                     cond_dim[i], cond_dim[i]]),
-                            sol, lower=False
-                        )
-                    )
-                    x = tf.pad(x, [[0, 0], [0, d - cond_dim[i]]])
-                    x_vals.append(x)
-                return tf.stack(x_vals)
+           with tf.variable_scope(scope):
+               mats, b = linear_conditional_matrix(conditioning, mat_params)
+               _, _, U, L = mat_func(
+                   mats, b, conditioning
+               )
+           with tf.variable_scope('invmap'):
+               Ut = tf.transpose(U, perm=[0, 2, 1])
+               Lt = tf.transpose(L, perm=[0, 2, 1])
+               zt = tf.expand_dims(z - b, -1)
+               bitmask = conditioning[:, d:]
+               bitmask = tf.contrib.framework.sort(bitmask, direction='ASCENDING')
+               t = tf.matrix_diag(bitmask)
+               Ut = Ut + t
+               Lt = Lt + t
+               sol = tf.matrix_triangular_solve(Ut, zt)
+               x = tf.matrix_triangular_solve(Lt, sol, lower=False)
+
+               return x
     return z, logdet, invmap
 
 
