@@ -239,7 +239,7 @@ def get_cond_LU_map(mat_params, b, conditioning):
             )
         with tf.variable_scope('logdet'):
             # Get the log absolute determinate
-            logdet = tf.reduce_sum(tf.log(tf.abs(tf.matrix_diag_part(U))))
+            logdet = tf.reduce_sum(tf.log(tf.abs(tf.matrix_diag_part(U))), axis=1)
 
     return A, logdet, U, L
 
@@ -292,7 +292,7 @@ def cond_linear_map(x, conditioning, mat_func=get_cond_LU_map, trainable_A=True,
                sol = tf.matrix_triangular_solve(Ut, zt)
                x = tf.matrix_triangular_solve(Lt, sol, lower=False)
 
-               return x
+               return tf.squeeze(x)
     return z, logdet, invmap
 
 
