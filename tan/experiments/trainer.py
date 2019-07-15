@@ -54,6 +54,7 @@ class RedTrainer:
         nsamp:
         samp_per_cond:
     """
+
     def __init__(self, fetchers, loss, input_data, llikes,
                  batch_size=128, sess=None,
                  # Learning rate.
@@ -100,7 +101,7 @@ class RedTrainer:
         self._loss_op = loss
         if penalty > 0.0:
             reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-            self._loss_op += penalty*sum(reg_losses)
+            self._loss_op += penalty * sum(reg_losses)
 
         # Training operations.
         self._lr = tf.Variable(init_lr, trainable=False)
@@ -286,7 +287,7 @@ class RedTrainer:
 
             # Validation.
             if i == 0 or i % self._hold_interval == 0 \
-                    or i+1 == self._train_iters:
+                    or i + 1 == self._train_iters:
                 # Get validation validation value on validation set.
                 valid_loss = self.validation_loss(i)
                 # If this is the best validation value, record and save model.
@@ -314,7 +315,7 @@ class RedTrainer:
             loss_batch = -np.mean(
                 self._sess.run(self._llikes, feed_dict=feed_dict))
             loss += loss_batch
-        loss = loss/self._valid_iters
+        loss = loss / self._valid_iters
         if self._val_writer is not None:
             self._val_writer.add_summary(
                 self._sess.run(self._average_summary,
@@ -334,8 +335,18 @@ class RedTrainer:
         try:
             while True:
                 batch = self._fetchers.test.next_batch(self._batch_size)
+                # pad batch if needed
+                n = batch[0].shape[0]
+                padding = self._batch_size - n
+                if padding > 0:
+                    batch = tuple(np.concatenate(
+                        [d, np.zeros([padding] + list(d.shape[1:]),
+                                     dtype='float32')],
+                        axis=0) for d in batch)
                 feed_dict = self._setup_feed_dict(batch, testing=True)
                 llikes = self._sess.run(self._llikes, feed_dict=feed_dict)
+                if padding > 0:
+                    llikes = llikes[:n]
                 test_list += [llikes]
         except IndexError:
             self._fetchers.test.reset_index()
