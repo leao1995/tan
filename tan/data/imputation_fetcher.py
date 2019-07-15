@@ -3,6 +3,26 @@ from PIL import Image
 from ..utils import misc
 
 
+def impute(x, c):
+    '''
+    x: [d]
+    c: [2d]
+    '''
+    d = x.shape[0]
+    xo = c[:d]
+    bitmask = c[d:]
+    sorted_mask = np.sort(1 - bitmask, axis=0)[::-1]
+    sorted_mask = sorted_mask != 0
+    valid_mask = bitmask != 0
+    xu = x.copy()
+    xu[~valid_mask] = x[sorted_mask]
+    xu[valid_mask] = 0
+
+    x = xu * (1 - bitmask) + xo * bitmask
+
+    return x
+
+
 def unobserved_format(xs, bitmask):
     # move all observed values to the front of row and pad the back with zeros
     xs = np.array(xs)

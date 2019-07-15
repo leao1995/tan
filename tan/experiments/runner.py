@@ -230,7 +230,7 @@ def make_trainer(dataset, base_save_path, base_log_path,
 
 
 def invalid_result(result):
-    return result is None or np.isnan(result['loss'])
+    return result is None or (result['loss'] is not None and np.isnan(result['loss']))
 
 
 def run_experiment(data, arg_list=ARG_LIST, def_args=DEF_ARGS,

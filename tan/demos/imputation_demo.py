@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt  # noqa
 from datetime import datetime
 from ..experiments import runner
 from ..model import transforms as trans
-from ..data.imputation_fetcher import generate_fetchers
+from ..data.imputation_fetcher import generate_fetchers, impute
 
 
 def main(home, ename, datapath):
@@ -15,7 +15,7 @@ def main(home, ename, datapath):
         'init_lr': (0.005, ),
         'lr_decay': (0.5, ),
         'max_grad_norm': (1, ),
-        'train_iters': (40000, ),
+        'train_iters': (0, ),
         'first_do_linear_map': (False, ),
         'first_trainable_A': (False, ),
         'trans_funcs': ([
@@ -29,14 +29,14 @@ def main(home, ename, datapath):
             trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
             trans.cond_linear_map, trans.cond_leaky_transformation,
             trans.cond_log_rescale, ], ),
-        'rnn_coupling_params': ({'units': 32, 'num_layers': 1}, ),
+        'rnn_coupling_params': ({'units': 256, 'num_layers': 1}, ),
         'cond_func': (runner.conds.rnn_model, ),
-        'rnn_params': ({'units': 32, 'num_layers': 2}, ),
+        'rnn_params': ({'units': 256, 'num_layers': 2}, ),
         'param_nlayers': (2, ),
-        'ncomps': (20,),
+        'ncomps': (40,),
         'batch_size': (128, ),
         'nsample_batches': (1, ),
-        'sample_per_cond': (5, ),
+        'samp_per_cond': (5, ),
         'trial': range(1),
     }
 
@@ -81,17 +81,20 @@ def main(home, ename, datapath):
     s = int(np.sqrt(d / channels))
     for i in range(5):
         samp = samples[i]
-        cond = samples_cond[i, :d]
+        cond = samples_cond[i]
+        img = []
 
-        fig = plt.figure()
-        ax = fig.add_subplot(1, n + 1, 1)
-        c = cond.reshape([s, s, channels])
-        c = np.squeeze(c)
-        ax.imshow((c * 255).astype('uint8'))
+        c = cond[:d]
+        c = c.reshape([s, s, channels])
+        c = np.squeeze(c, axis=-1)
+        c = (c * 255).astype('uint8')
+        img.append(c)
         for k in range(n):
-            ax = fig.add_subplot(1, n + 1, k + 2)
-            x = samp[k].reshape([s, s, channels])
-            x = np.squeeze(x)
-            ax.imshow((x * 255).astype('uint8'))
-        plt.savefig(os.path.join(res_path, 'samp_{}.png'.format(i)))
-        plt.close('all')
+            x = impute(samp[k], cond)
+            x = x.reshape([s, s, channels])
+            x = np.squeeze(x, axis=-1)
+            x = (x * 255).astype('uint8')
+            img.append(x)
+
+        img = np.concatenate(img, axis=1)
+        plt.imsave(os.path.join(res_path, 'samp_{}.png'.format(i)), img)
