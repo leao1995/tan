@@ -205,7 +205,8 @@ def linear_conditional_matrix(conditioning, mat_params):
     A = tf.tile(tf.expand_dims(mat_params, axis=0),
                 [set_size, 1, 1]) + mat_cond
     bitmask = 1 - conditioning[:, d:]
-    order = tf.argsort(bitmask, direction='DESCENDING')
+    order = tf.contrib.framework.argsort(
+        bitmask, direction='DESCENDING', stable=True)
     t = tf.batch_gather(tf.matrix_diag(bitmask), order)
     bias_cond = tf.squeeze(tf.matmul(t, tf.expand_dims(bias_cond, -1)))
     return tf.matmul(tf.matmul(t, A), tf.transpose(t, perm=[0, 2, 1])), bias_cond

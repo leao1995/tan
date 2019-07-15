@@ -39,7 +39,7 @@ class RedConfig:
         )
         # RNN coupling parameters.
         self.rnn_coupling_params = misc.get_default(
-            kwargs, 'rnn_coupling_params', {'nunits': 256, 'num_layers': 1})
+            kwargs, 'rnn_coupling_params', {'units': 256, 'num_layers': 1})
         self.rnn_coupling_type = misc.get_default(kwargs, 'rnn_coupling_type',
                                                   cells.GRUCell)
         self.rnn_coupling_class = self.rnn_coupling_type(
@@ -102,6 +102,9 @@ class RedConfig:
                 'mat_func': self.mat_func,
                 'trainable_A': self.trainable_A,
                 'trainable_b': self.trainable_b},
+            trans.cond_linear_map: {
+                'mat_func': trans.get_cond_LU_map,
+            },
             trans.additive_coupling: {
                 'hidden_sizes': self.add_hidden_sizes,
                 'irange': self.add_irange,

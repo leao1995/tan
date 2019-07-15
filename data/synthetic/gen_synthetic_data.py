@@ -91,6 +91,6 @@ def main(path=None, dst_type='rand'):
 
 
 if __name__ == '__main__':
-    main('./exp/data/imp_rand.p', 'rand')
-    main('./exp/data/imp_2d.p', '2d')
-    main('./exp/data/imp_2d_fix.p', '2d_fix')
+    main('./imp_rand.p', 'rand')
+    main('./imp_2d.p', '2d')
+    main('./imp_2d_fix.p', '2d_fix')
