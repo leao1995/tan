@@ -187,9 +187,10 @@ def linear_cond_values(conditioning, d, hidden_sizes=[256]):
     # run conditioning information through fully connected layer
     with tf.variable_scope("linear_conditional_matrix_param", reuse=tf.AUTO_REUSE):
         mat = nn.fc_network(
-            conditioning, d, hidden_sizes=hidden_sizes, name='mlp', output_init_range=4,
+            conditioning, 2*d, hidden_sizes=hidden_sizes, name='mlp', output_init_range=1e-2,
         )
-        mat = tf.matrix_diag(mat)
+        mat1, mat2 = tf.split(tf.squeeze(mat), 2, axis=1)
+        mat = tf.matmul(tf.expand_dims(mat1, -1), tf.expand_dims(mat2, 1))
     with tf.variable_scope("linear_conditional_bias", reuse=tf.AUTO_REUSE):
         bias = nn.fc_network(
             conditioning, d, hidden_sizes=hidden_sizes, name='mlp', output_init_range=1e-2
