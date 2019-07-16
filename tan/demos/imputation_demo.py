@@ -12,37 +12,44 @@ from ..data.imputation_fetcher import generate_fetchers, impute
 
 def main(home, ename, datapath):
     ac = {
-        'print_iters': (1, ),
-        'init_lr': (0.0005, ),
+        'print_iters': (100, ),
+        'init_lr': (0.005, ),
         'lr_decay': (0.5, ),
         'max_grad_norm': (1, ),
         'train_iters': (60000, ),
         'first_do_linear_map': (False, ),
         'first_trainable_A': (False, ),
         # 'trans_funcs': ([
+        #     trans.cond_leaky_transformation, trans.cond_linear_map, 
+        #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+        #     trans.cond_leaky_transformation, trans.cond_linear_map, 
+        #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+        #     trans.cond_leaky_transformation, trans.cond_linear_map, 
+        #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+        #     trans.cond_leaky_transformation, trans.cond_linear_map, 
+        #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
         #     trans.cond_leaky_transformation,
-        #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
-        #     trans.cond_linear_map, trans.cond_leaky_transformation,
-        #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
-        #     trans.cond_linear_map, trans.cond_leaky_transformation,
-        #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
-        #     trans.cond_linear_map, trans.cond_leaky_transformation,
-        #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
-        #     trans.cond_linear_map, trans.cond_leaky_transformation,
         #     trans.cond_log_rescale, ], ),
         'trans_funcs': ([
-            # trans.cond_rnn_coupling,
+            trans.cond_leaky_transformation,
+            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+            trans.cond_leaky_transformation,
+            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+            trans.cond_leaky_transformation,
+            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+            trans.cond_leaky_transformation,
+            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
             trans.cond_leaky_transformation,
         ], ),
-        'rnn_coupling_params': ({'units': 32, 'num_layers': 1}, ),
-        # 'cond_func': (runner.conds.rnn_model, ),
-        # 'rnn_params': ({'units': 256, 'num_layers': 2}, ),
-        'cond_func': (runner.conds.independent_model, ),
-        'single_margin': (True, ),
-        'standard': (True, ),
+        'rnn_coupling_params': ({'units': 256, 'num_layers': 1}, ),
+        'cond_func': (runner.conds.rnn_model, ),
+        'rnn_params': ({'units': 256, 'num_layers': 2}, ),
+        # 'cond_func': (runner.conds.independent_model, ),
+        # 'single_margin': (True, ),
+        # 'standard': (True, ),
         'param_nlayers': (2, ),
         'ncomps': (40,),
-        'batch_size': (128, ),
+        'batch_size': (64, ),
         'nsample_batches': (1, ),
         'samp_per_cond': (5, ),
         'trial': range(1),
@@ -50,7 +57,7 @@ def main(home, ename, datapath):
 
     is_image = False
     channels = 1
-    resize = 8
+    resize = 16
     noise_std = 0.01
     standardize = True
     if 'mnist' in datapath:
@@ -104,6 +111,7 @@ def main(home, ename, datapath):
     mse *= (1 - bitmask)
     mse = np.sum(mse, axis=0)
     num = np.sum(1 - bitmask, axis=0)
+    num = np.maximum(np.ones_like(num), num)
     mse /= num
     nrmse = np.sqrt(mse) / std  # [n, d]
     nrmse = np.mean(nrmse)

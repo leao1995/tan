@@ -187,13 +187,14 @@ def linear_cond_values(conditioning, d, hidden_sizes=[256]):
     # run conditioning information through fully connected layer
     with tf.variable_scope("linear_conditional_matrix_param", reuse=tf.AUTO_REUSE):
         mat = nn.fc_network(
-            conditioning, 2 * d, hidden_sizes=hidden_sizes, name='mlp', output_init_range=1e-2,
+            conditioning, 2 * d, hidden_sizes=hidden_sizes, name='mlp', output_init_range=0,
         )
         mat1, mat2 = tf.split(tf.squeeze(mat), 2, axis=1)
         mat = tf.matmul(tf.expand_dims(mat1, -1), tf.expand_dims(mat2, 1))
+        mat = mat - mat * tf.matrix_diag(tf.ones((tf.shape(mat)[0], d)))
     with tf.variable_scope("linear_conditional_bias", reuse=tf.AUTO_REUSE):
         bias = nn.fc_network(
-            conditioning, d, hidden_sizes=hidden_sizes, name='mlp', output_init_range=1e-2
+            conditioning, d, hidden_sizes=hidden_sizes, name='mlp', output_init_range=0
         )
     return tf.squeeze(mat), tf.squeeze(bias)
 
@@ -204,7 +205,7 @@ def linear_conditional_matrix(conditioning, mat_params):
     mat_cond, bias_cond = linear_cond_values(
         tf.expand_dims(conditioning, axis=0), d)
     A = tf.tile(tf.expand_dims(mat_params, axis=0),
-                [set_size, 1, 1]) + mat_cond
+                [set_size, 1, 1]) #+ mat_cond
     bitmask = 1 - conditioning[:, d:]
     order = tf.contrib.framework.argsort(
         bitmask, direction='DESCENDING', stable=True)

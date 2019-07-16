@@ -95,6 +95,7 @@ def make_nll_loss(logits, targets, logdetmap, likefunc=mixture_likelihoods,
         lls = log_likelihoods(logits, targets, logdetmap, likefunc=likefunc,
                               min_like=min_like, mask=bitmask)
         num = tf.cast(tf.reduce_sum(1. - bitmask, axis=-1), tf.float32)
+        num = tf.maximum(tf.ones_like(num), num)
         loss = -tf.reduce_mean(lls / num)
     return loss, lls
 

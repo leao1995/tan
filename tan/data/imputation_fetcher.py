@@ -120,7 +120,6 @@ class BatchFetcher:
         else:
             # add noise
             if self._noise_std > 0.:
-
                 batches += np.random.randn(*batches.shape) * self._noise_std
 
             # standardize
@@ -132,6 +131,7 @@ class BatchFetcher:
         batches = np.array(batches, dtype='float32')
         bitmask = np.random.choice(
             [0, 1], batches.shape, [self._missing_prob, 1 - self._missing_prob])
+
         x, c = input_format(batches, bitmask)
 
         return x, c
