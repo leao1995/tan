@@ -61,14 +61,14 @@ def input_format(data, bitmask):
     return xs, cond
 
 
-def main(path=None, dst_type='rand'):
+def main(path=None, dimension=15, dst_type='rand'):
     if path is None:
         home = os.path.expanduser('~')
         path = "{}/data/imputation/".format(home)
         misc.make_path(path)
         path += "imp.p"
 
-    ys, bitmask, xs, cond, dist_data = make_data(102400, 15, dst_type)
+    ys, bitmask, xs, cond, dist_data = make_data(102400, dimension, dst_type)
     part = xs.shape[0] / 10
 
     training = xs[:int(5 * part)]
@@ -91,6 +91,7 @@ def main(path=None, dst_type='rand'):
 
 
 if __name__ == '__main__':
-    main('./imp_rand.p', 'rand')
-    main('./imp_2d.p', '2d')
-    main('./imp_2d_fix.p', '2d_fix')
+    main('./imp_rand.p', 15, 'rand')
+    main('./imp_2d.p', 15, '2d')
+    main('./imp_2d_fix.p', 15, '2d_fix')
+    main('./imp_2d_4d.p', 4, '2d')
