@@ -7,15 +7,15 @@ import matplotlib.pyplot as plt  # noqa
 from datetime import datetime
 from ..experiments import runner
 from ..model import transforms as trans
-from ..data.imputation_fetcher import generate_fetchers, impute
+from ..data.imputation_fetcher import generate_fetchers, impute, input_format
 
 
 def main(home, ename, datapath):
     ac = {
-        'init_lr': (0.005, ),
+        'init_lr': (0.000005, ),
         'lr_decay': (0.5, ),
         'max_grad_norm': (1, ),
-        'train_iters': (0, ),
+        'train_iters': (60000, ),
         'first_do_linear_map': (False, ),
         'first_trainable_A': (False, ),
         'trans_funcs': ([
@@ -43,10 +43,12 @@ def main(home, ename, datapath):
     is_image = False
     channels = 1
     resize = 8
+    noise_std = 10.0
     if 'mnist' in datapath:
         is_image = True
+        noise_std = 0.0
 
-    fetcher = generate_fetchers(is_image, channels, resize)
+    fetcher = generate_fetchers(is_image, channels, resize, noise_std)
 
     ret_new = runner.run_experiment(
         datapath, arg_list=runner.misc.make_arguments(ac),
@@ -68,6 +70,33 @@ def main(home, ename, datapath):
         datapath, results['mean_test_llks'], results['stderr_test_llks']))
 
     # Get test MSE
+    print('Loading test data for computing MSE.')
+    with open(datapath, 'rb') as f:
+        dataset = pickle.load(f)
+        test_data = dataset['test']  # [N, d]
+        test_data = np.expand_dims(test_data, axis=1)
+    N, d = test_data.shape
+    samples = results['test_samples']  # [N, n, d]
+    samples_cond = results['test_samples_cond']  # [N, 2d]
+    assert samples.shape[0] == N
+    N, n, d = samples.shape
+    bitmask = samples_cond[:, d:]
+    bitmask = np.repeat(np.expand_dims(bitmask, axis=1), n, axis=1)  # [N,n,d]
+    sorted_bitmask = np.sort(1 - bitmask, axis=2)[:, :, ::-1]
+    r_samples = samples.copy()
+    r_samples[bitmask == 0] = samples[sorted_bitmask != 0]
+    r_samples *= (1 - bitmask)
+
+    std = np.std(test_data, axis=0)  # [1,d]
+    mse = (r_samples - test_data)**2
+    mse *= (1 - bitmask)
+    mse = np.sum(mse, axis=0)
+    num = np.sum(1 - bitmask, axis=0)
+    mse /= num
+    nrmse = np.sqrt(mse) / std  # [n, d]
+    nrmse = np.mean(nrmse)
+
+    print('Average Test NRMSE: {}'.format(nrmse))
 
     #####################################################################
     if not is_image:

@@ -303,8 +303,11 @@ class RedTrainer:
         # Sample using best model.
         if self._sampler is not None:
             samples, samples_cond = self.sample(load_saved_model=True)
+            test_samples, test_samples_cond = self.sample_test(
+                load_saved_model=True)
             return {'loss': best_loss, 'test_llks': test_llks,
-                    'samples': samples, 'samples_cond': samples_cond}
+                    'samples': samples, 'samples_cond': samples_cond,
+                    'test_samples': test_samples, 'test_samples_cond': test_samples_cond}
         return {'loss': best_loss, 'test_llks': test_llks}
 
     def validation_loss(self, i):
@@ -353,6 +356,50 @@ class RedTrainer:
             print('REACHED END')
         test_list = np.concatenate(test_list, 0)
         return test_list
+
+    def sample_test(self, load_saved_model=True):
+        if load_saved_model:
+            self.restore_model()
+        if self._dropout_keeprate is not None:
+            feed_dict = {self._dropout_keeprate: 0.0}
+        else:
+            feed_dict = None
+        samples = []
+        samples_cond = []
+        try:
+            while True:
+                batch = self._fetchers.test.next_batch(self._batch_size)
+                # pad batch if needed
+                n = batch[0].shape[0]
+                padding = self._batch_size - n
+                if padding > 0:
+                    batch = tuple(np.concatenate(
+                        [d, np.zeros([padding] + list(d.shape[1:]),
+                                     dtype='float32')],
+                        axis=0) for d in batch)
+                samp_cond = batch[1]
+                feed_dict = {} if feed_dict is None else feed_dict
+                feed_dict[self._conditioning_data] = samp_cond
+                if self._samp_per_cond == 1:
+                    samp = self._sess.run(self._sampler, feed_dict=feed_dict)
+                else:
+                    samp = []
+                    for ci in range(self._samp_per_cond):
+                        samp.append(
+                            self._sess.run(self._sampler, feed_dict=feed_dict))
+                    samp = np.stack(samp, 1)
+                if padding > 0:
+                    samp = samp[:n]
+                    samp_cond = samp_cond[:n]
+                samples.append(samp)
+                samples_cond.append(samp_cond)
+        except IndexError:
+            self._fetchers.test.reset_index()
+            print('REACHED END')
+        samples = np.concatenate(samples, axis=0)
+        samples_cond = np.concatenate(samples_cond, axis=0)
+
+        return samples, samples_cond
 
     def sample(self, load_saved_model=False):
         if load_saved_model:

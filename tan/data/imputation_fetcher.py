@@ -71,6 +71,7 @@ class BatchFetcher:
         self._N = datasets[0].shape[0]
         self._perm = np.random.permutation(self._N)
         self._curri = 0
+        self._noise_std = misc.get_default(kwargs, 'noise_std', 0.0)
         self._missing_prob = misc.get_default(kwargs, 'missing_prob', 0.5)
         self._loop_around = misc.get_default(kwargs, 'loop_around', True)
         self._is_image = misc.get_default(kwargs, 'is_image', False)
@@ -114,6 +115,10 @@ class BatchFetcher:
             batches += np.random.rand(*batches.shape)
             batches /= 256.
 
+        # add noise
+        if self._noise_std > 0.:
+            batches += np.random.randn(*batches.shape) * self._noise_std
+
         # get unobserved and condtioning
         batches = np.array(batches, dtype='float32')
         bitmask = np.random.choice(
@@ -140,10 +145,11 @@ class DatasetFetchers:
         return self.train.dim
 
 
-def generate_fetchers(is_image, channels, resize):
+def generate_fetchers(is_image, channels, resize, noise_std):
     return lambda tr, va, ts: DatasetFetchers(
         tr, va, ts,
-        is_image=is_image, channels=channels, resize=resize)
+        is_image=is_image, channels=channels,
+        resize=resize, noise_std=noise_std)
 
 
 def main():

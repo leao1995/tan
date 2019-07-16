@@ -8,6 +8,7 @@ synthetic_datasets = {
     '2d': './data/synthetic/imp_2d.p',
     '2d_fix': './data/synthetic/imp_2d_fix.p',
     'rand': './data/synthetic/imp_rand.p',
+    '2d_4d': './data/synthetic/imp_2d_4d.p',
 }
 
 datasets = {
