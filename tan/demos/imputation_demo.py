@@ -7,31 +7,39 @@ import matplotlib.pyplot as plt  # noqa
 from datetime import datetime
 from ..experiments import runner
 from ..model import transforms as trans
-from ..data.imputation_fetcher import generate_fetchers, impute, input_format
+from ..data.imputation_fetcher import generate_fetchers, impute
 
 
 def main(home, ename, datapath):
     ac = {
-        'init_lr': (0.000005, ),
+        'print_iters': (1, ),
+        'init_lr': (0.0005, ),
         'lr_decay': (0.5, ),
         'max_grad_norm': (1, ),
         'train_iters': (60000, ),
         'first_do_linear_map': (False, ),
         'first_trainable_A': (False, ),
+        # 'trans_funcs': ([
+        #     trans.cond_leaky_transformation,
+        #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+        #     trans.cond_linear_map, trans.cond_leaky_transformation,
+        #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+        #     trans.cond_linear_map, trans.cond_leaky_transformation,
+        #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+        #     trans.cond_linear_map, trans.cond_leaky_transformation,
+        #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+        #     trans.cond_linear_map, trans.cond_leaky_transformation,
+        #     trans.cond_log_rescale, ], ),
         'trans_funcs': ([
+            # trans.cond_rnn_coupling,
             trans.cond_leaky_transformation,
-            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
-            trans.cond_linear_map, trans.cond_leaky_transformation,
-            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
-            trans.cond_linear_map, trans.cond_leaky_transformation,
-            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
-            trans.cond_linear_map, trans.cond_leaky_transformation,
-            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
-            trans.cond_linear_map, trans.cond_leaky_transformation,
-            trans.cond_log_rescale, ], ),
-        'rnn_coupling_params': ({'units': 256, 'num_layers': 1}, ),
-        'cond_func': (runner.conds.rnn_model, ),
-        'rnn_params': ({'units': 256, 'num_layers': 2}, ),
+        ], ),
+        'rnn_coupling_params': ({'units': 32, 'num_layers': 1}, ),
+        # 'cond_func': (runner.conds.rnn_model, ),
+        # 'rnn_params': ({'units': 256, 'num_layers': 2}, ),
+        'cond_func': (runner.conds.independent_model, ),
+        'single_margin': (True, ),
+        'standard': (True, ),
         'param_nlayers': (2, ),
         'ncomps': (40,),
         'batch_size': (128, ),
@@ -43,12 +51,13 @@ def main(home, ename, datapath):
     is_image = False
     channels = 1
     resize = 8
-    noise_std = 10.0
+    noise_std = 0.01
+    standardize = True
     if 'mnist' in datapath:
         is_image = True
-        noise_std = 0.0
 
-    fetcher = generate_fetchers(is_image, channels, resize, noise_std)
+    fetcher = generate_fetchers(
+        is_image, channels, resize, noise_std, standardize)
 
     ret_new = runner.run_experiment(
         datapath, arg_list=runner.misc.make_arguments(ac),
@@ -86,6 +95,9 @@ def main(home, ename, datapath):
     r_samples = samples.copy()
     r_samples[bitmask == 0] = samples[sorted_bitmask != 0]
     r_samples *= (1 - bitmask)
+
+    if standardize:
+        r_samples = fetcher.reverse(r_samples)
 
     std = np.std(test_data, axis=0)  # [1,d]
     mse = (r_samples - test_data)**2

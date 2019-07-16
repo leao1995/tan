@@ -187,7 +187,7 @@ def linear_cond_values(conditioning, d, hidden_sizes=[256]):
     # run conditioning information through fully connected layer
     with tf.variable_scope("linear_conditional_matrix_param", reuse=tf.AUTO_REUSE):
         mat = nn.fc_network(
-            conditioning, 2*d, hidden_sizes=hidden_sizes, name='mlp', output_init_range=1e-2,
+            conditioning, 2 * d, hidden_sizes=hidden_sizes, name='mlp', output_init_range=1e-2,
         )
         mat1, mat2 = tf.split(tf.squeeze(mat), 2, axis=1)
         mat = tf.matmul(tf.expand_dims(mat1, -1), tf.expand_dims(mat2, 1))
@@ -236,11 +236,13 @@ def get_cond_LU_map(mat_params, b, conditioning):
             A = tf.matmul(L, U, name='A')
             # add 1 to all zeros in diagonal
             U = U + tf.matrix_diag(
-                tf.contrib.framework.sort(conditioning[:, d:], direction='ASCENDING')
+                tf.contrib.framework.sort(
+                    conditioning[:, d:], direction='ASCENDING')
             )
         with tf.variable_scope('logdet'):
             # Get the log absolute determinate
-            logdet = tf.reduce_sum(tf.log(tf.abs(tf.matrix_diag_part(U))), axis=1)
+            logdet = tf.reduce_sum(
+                tf.log(tf.abs(tf.matrix_diag_part(U))), axis=1)
 
     return A, logdet, U, L
 
@@ -281,19 +283,19 @@ def cond_linear_map(x, conditioning, mat_func=get_cond_LU_map, trainable_A=True,
 
         # Inverse map
         def invmap(z, conditioning):
-           with tf.variable_scope(scope):
-               mats, b = linear_conditional_matrix(conditioning, mat_params)
-               _, _, U, L = mat_func(
-                   mats, b, conditioning
-               )
-           with tf.variable_scope('invmap'):
-               Ut = tf.transpose(U, perm=[0, 2, 1])
-               Lt = tf.transpose(L, perm=[0, 2, 1])
-               zt = tf.expand_dims(z - b, -1)
-               sol = tf.matrix_triangular_solve(Ut, zt)
-               x = tf.matrix_triangular_solve(Lt, sol, lower=False)
+            with tf.variable_scope(scope):
+                mats, b = linear_conditional_matrix(conditioning, mat_params)
+                _, _, U, L = mat_func(
+                    mats, b, conditioning
+                )
+            with tf.variable_scope('invmap'):
+                Ut = tf.transpose(U, perm=[0, 2, 1])
+                Lt = tf.transpose(L, perm=[0, 2, 1])
+                zt = tf.expand_dims(z - b, -1)
+                sol = tf.matrix_triangular_solve(Ut, zt)
+                x = tf.matrix_triangular_solve(Lt, sol, lower=False)
 
-               return tf.squeeze(x)
+                return tf.squeeze(x)
     return z, logdet, invmap
 
 

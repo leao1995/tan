@@ -10,8 +10,8 @@ from ..data import batch_fetcher as bfetchers
 from ..experiments import experiment
 from ..experiments import config as econfig
 from ..model import conditionals as conds
-from ..model import transforms as trans # noqa
-from ..model import likelihoods as likes # noqa
+from ..model import transforms as trans  # noqa
+from ..model import likelihoods as likes  # noqa
 from datetime import datetime
 
 # Hyperparameters.
@@ -120,11 +120,11 @@ def print_value(value):
         return value
     try:
         try:
-            string = reduce(lambda x, y: x+'-'+y,
+            string = reduce(lambda x, y: x + '-' + y,
                             [print_value(v) for v in value.items()])
         except AttributeError:  # Not dictionary
             string = reduce(
-                lambda x, y: x+','+y, [print_value(v) for v in value])
+                lambda x, y: x + ',' + y, [print_value(v) for v in value])
     except TypeError:  # Not iterable
         try:
             string = value.func_name
@@ -191,8 +191,8 @@ def make_trainer(dataset, base_save_path, base_log_path,
             trial_args, 'batch_size', 256)
         if nepochs is not None:
             N, d = dataset['train'].shape
-            iters_per_epoch = N/float(trial_args['batch_size'])
-            trial_args['train_iters'] = int(nepochs*iters_per_epoch)
+            iters_per_epoch = N / float(trial_args['batch_size'])
+            trial_args['train_iters'] = int(nepochs * iters_per_epoch)
 
         config = econfig.RedConfig(**trial_args)
         # Make directories specific to experiment trial.
@@ -270,10 +270,10 @@ def run_experiment(data, arg_list=ARG_LIST, def_args=DEF_ARGS,
         args = arg_list[ai]
         retries_left = retries
         print('RUNNING {}'.format(experiments_name))
-        print('[{}/{}] {}'.format(ai+1, len(arg_list), args))
+        print('[{}/{}] {}'.format(ai + 1, len(arg_list), args))
         results.append(main(args))
         while invalid_result(results[-1]) and retries_left > 0:
-            print('[{}/{}] Retrying {}'.format(ai+1, len(arg_list), args))
+            print('[{}/{}] Retrying {}'.format(ai + 1, len(arg_list), args))
             retries_left -= 1
             results[-1] = main(args)
 
@@ -287,8 +287,8 @@ def run_experiment(data, arg_list=ARG_LIST, def_args=DEF_ARGS,
             best['args'] = args
         pickle.dump(
             {'best': best, 'trial_results': results,
-             'trial_args': arg_list[:ai+1]},
-            open(os.path.join(log_path, experiments_name+'_all_trials.p'),
+             'trial_args': arg_list[:ai + 1]},
+            open(os.path.join(log_path, experiments_name + '_all_trials.p'),
                  'wb'))
     if best is not None:
         best['save_path'] = save_path
@@ -296,5 +296,5 @@ def run_experiment(data, arg_list=ARG_LIST, def_args=DEF_ARGS,
         best['def_args'] = def_args
     pickle.dump(
         best,
-        open(os.path.join(save_path, experiments_name+'_best_trial.p'), 'wb'))
+        open(os.path.join(save_path, experiments_name + '_best_trial.p'), 'wb'))
     return best, results

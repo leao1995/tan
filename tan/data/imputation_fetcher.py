@@ -64,6 +64,8 @@ def batch_resize(data, resize, channels):
 
 class BatchFetcher:
 
+    stats = (None, None)
+
     def __init__(self, *datasets, **kwargs):
         assert len(datasets) == 1
         self._datasets = datasets[0]
@@ -71,6 +73,7 @@ class BatchFetcher:
         self._N = datasets[0].shape[0]
         self._perm = np.random.permutation(self._N)
         self._curri = 0
+        self._standardize = misc.get_default(kwargs, 'standardize', False)
         self._noise_std = misc.get_default(kwargs, 'noise_std', 0.0)
         self._missing_prob = misc.get_default(kwargs, 'missing_prob', 0.5)
         self._loop_around = misc.get_default(kwargs, 'loop_around', True)
@@ -114,10 +117,16 @@ class BatchFetcher:
             batches = np.array(batches, dtype='float32')
             batches += np.random.rand(*batches.shape)
             batches /= 256.
+        else:
+            # add noise
+            if self._noise_std > 0.:
 
-        # add noise
-        if self._noise_std > 0.:
-            batches += np.random.randn(*batches.shape) * self._noise_std
+                batches += np.random.randn(*batches.shape) * self._noise_std
+
+            # standardize
+            if self._standardize:
+                mean, std = BatchFetcher.stats
+                batches = (batches - mean) / std
 
         # get unobserved and condtioning
         batches = np.array(batches, dtype='float32')
@@ -135,6 +144,17 @@ class DatasetFetchers:
         self.validation = BatchFetcher(*validation, **kwargs)
         self.test = BatchFetcher(*test, loop_around=False, **kwargs)
 
+        self.set_stats()
+
+    def set_stats(self):
+        mean = self.train._datasets.mean(axis=0)
+        std = self.train._datasets.std(axis=0)
+        BatchFetcher.stats = (mean, std)
+
+    def reverse(self, samples):
+        mean, std = BatchFetcher.stats
+        return samples * std + mean
+
     def reset_index(self):
         self.train.reset_index()
         self.validation.reset_index()
@@ -145,11 +165,12 @@ class DatasetFetchers:
         return self.train.dim
 
 
-def generate_fetchers(is_image, channels, resize, noise_std):
+def generate_fetchers(is_image, channels, resize, noise_std, standardize):
     return lambda tr, va, ts: DatasetFetchers(
         tr, va, ts,
         is_image=is_image, channels=channels,
-        resize=resize, noise_std=noise_std)
+        resize=resize, noise_std=noise_std,
+        standardize=standardize)
 
 
 def main():
