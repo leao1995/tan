@@ -151,7 +151,8 @@ class DatasetFetchers:
         std = self.train._datasets.std(axis=0)
         BatchFetcher.stats = (mean, std)
 
-    def reverse(self, samples):
+    @staticmethod
+    def reverse(samples):
         mean, std = BatchFetcher.stats
         return samples * std + mean
 
