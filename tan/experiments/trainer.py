@@ -249,6 +249,14 @@ class RedTrainer:
             tuple of (best_validation_value, test_validation_value)
         """
         self._sess.run(tf.global_variables_initializer())
+        # try to restore model
+        print('trying to restore a existing model...')
+        try:
+            self.restore_model()
+            print('successfully restored, continue training.')
+        except:
+            print('failed to restore, training from scratch.')
+
         # Pretrain if needed.
         if not self._pretrain():
             return {'loss': np.NaN, 'test_llks': None}
