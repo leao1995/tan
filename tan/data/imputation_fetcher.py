@@ -130,10 +130,13 @@ class BatchFetcher:
         # get unobserved and condtioning
         batches = np.array(batches, dtype='float32')
         bitmask = np.random.choice(
-            [0, 1], batches.shape, [self._missing_prob, 1 - self._missing_prob])
+            [0, 1], batches.shape, p=[self._missing_prob, 1 - self._missing_prob])
+        
+        # make sure all rows have at least 1 zero
+        zerod = np.where(np.sum(1-bitmask, axis=1)==0)[0]
+        bitmask[zerod, np.random.choice(batches.shape[1], zerod.shape)] = 0
 
         x, c = input_format(batches, bitmask)
-
         return x, c
 
 
