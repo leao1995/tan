@@ -15,20 +15,20 @@ def main(home, ename, datapath):
         'print_iters': (100, ),
         'init_lr': (0.005, ),
         'lr_decay': (0.5, ),
-        'max_grad_norm': (1, ),
+        'max_grad_norm': (10, ),
         'train_iters': (60000, ),
         'first_do_linear_map': (False, ),
         'first_trainable_A': (False, ),
         'trans_funcs': ([
-            trans.cond_leaky_transformation, trans.cond_linear_map,
-            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
-            trans.cond_leaky_transformation, trans.cond_linear_map,
-            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
-            trans.cond_leaky_transformation, trans.cond_linear_map,
-            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
-            trans.cond_leaky_transformation, trans.cond_linear_map,
-            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
             trans.cond_leaky_transformation,
+            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+            trans.cond_linear_map, trans.cond_leaky_transformation,
+            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+            trans.cond_linear_map, trans.cond_leaky_transformation,
+            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+            trans.cond_linear_map, trans.cond_leaky_transformation,
+            trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
+            trans.cond_linear_map, trans.cond_leaky_transformation,
             trans.cond_log_rescale, ], ),
         # 'trans_funcs': ([
         #     trans.cond_leaky_transformation,
@@ -41,7 +41,7 @@ def main(home, ename, datapath):
         #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
         #     trans.cond_leaky_transformation,
         # ], ),
-        'rnn_coupling_params': ({'units': 256, 'num_layers': 1}, ),
+        'rnn_coupling_params': ({'units': 256, 'num_layers': 2}, ),
         'cond_func': (runner.conds.rnn_model, ),
         'rnn_params': ({'units': 256, 'num_layers': 2}, ),
         # 'cond_func': (runner.conds.independent_model, ),
@@ -90,7 +90,7 @@ def main(home, ename, datapath):
     with open(datapath, 'rb') as f:
         dataset = pickle.load(f)
         test_data = dataset['test']  # [N, d]
-    if resize > 0:
+    if is_image and resize > 0:
         test_data = batch_resize(test_data, resize, channels)
     samples = results['test_samples']  # [N, n, d]
     samples_cond = results['test_samples_cond']  # [N, 2d]
