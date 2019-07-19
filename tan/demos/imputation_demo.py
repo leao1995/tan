@@ -41,6 +41,8 @@ def main(home, ename, datapath):
         #     trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
         #     trans.cond_leaky_transformation,
         # ], ),
+        'cond_linear_rank': (1,),
+        'cond_linear_hids': ([256],),
         'rnn_coupling_params': ({'units': 256, 'num_layers': 2}, ),
         'cond_func': (runner.conds.rnn_model, ),
         'rnn_params': ({'units': 256, 'num_layers': 2}, ),

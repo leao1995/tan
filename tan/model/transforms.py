@@ -194,6 +194,7 @@ def linear_map(x, init_mat_params=None, init_b=None, mat_func=get_LU_map,
 def linear_cond_values(conditioning, d, hidden_sizes=[256], r=1):
     # run conditioning information through fully connected layer
     with tf.variable_scope("linear_conditional_matrix_param", reuse=tf.AUTO_REUSE):
+        r = r if r > 0 else d
         mat = nn.fc_network(
             conditioning, 2 * d * r, hidden_sizes=hidden_sizes, name='mlp', output_init_range=0,
         )
@@ -210,11 +211,12 @@ def linear_cond_values(conditioning, d, hidden_sizes=[256], r=1):
     return tf.squeeze(mat), tf.squeeze(bias)
 
 
-def linear_conditional_matrix(conditioning, mat_params):
+def linear_conditional_matrix(conditioning, mat_params, rank, hids):
     d = int(conditioning.get_shape()[-1] / 2)
     set_size = conditioning.get_shape()[0]
     mat_cond, bias_cond = linear_cond_values(
-        tf.expand_dims(conditioning, axis=0), d)
+        tf.expand_dims(conditioning, axis=0), d,
+        hidden_sizes=hids, r=rank)
     A = tf.tile(tf.expand_dims(mat_params, axis=0),
                 [set_size, 1, 1]) + mat_cond
     bitmask = 1 - conditioning[:, d:]
@@ -257,8 +259,8 @@ def get_cond_LU_map(mat_params, b, conditioning):
     return A, logdet, U, L
 
 
-def cond_linear_map(x, conditioning, mat_func=get_cond_LU_map, trainable_A=True,
-                    trainable_b=True, irange=1e-10, name='cond_linear_map'):
+def cond_linear_map(x, conditioning, cond_rank=1, cond_hids=[256], mat_func=get_cond_LU_map,
+                    trainable_A=True, trainable_b=True, irange=1e-10, name='cond_linear_map'):
     """Return the linearly transformed, y^t = x^t * mat_func(mat_params) + b^t,
     log determinant of Jacobian and inverse map.
     Args:
@@ -287,7 +289,8 @@ def cond_linear_map(x, conditioning, mat_func=get_cond_LU_map, trainable_A=True,
             'mat_params', dtype=tf.float32,
             initializer=tf.eye(d, dtype=tf.float32), trainable=trainable_A
         )
-        mats, b = linear_conditional_matrix(conditioning, mat_params)
+        mats, b = linear_conditional_matrix(
+            conditioning, mat_params, cond_rank, cond_hids)
         A, logdet, _, _ = mat_func(mats, b, conditioning)
         z = tf.einsum('ai,aik->ak', x, A, name="mat_mul") + b
 
