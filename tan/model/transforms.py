@@ -297,7 +297,8 @@ def cond_linear_map(x, conditioning, cond_rank=1, cond_hids=[256], mat_func=get_
         # Inverse map
         def invmap(z, conditioning):
             with tf.variable_scope(scope):
-                mats, b = linear_conditional_matrix(conditioning, mat_params)
+                mats, b = linear_conditional_matrix(
+                    conditioning, mat_params, cond_rank, cond_hids)
                 _, _, U, L = mat_func(
                     mats, b, conditioning
                 )
