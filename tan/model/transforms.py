@@ -189,14 +189,18 @@ def linear_map(x, init_mat_params=None, init_b=None, mat_func=get_LU_map,
         z = tf.matmul(x, A) + tf.expand_dims(b, 0)
 
 
-def linear_cond_values(conditioning, d, hidden_sizes=[256]):
+def linear_cond_values(conditioning, d, hidden_sizes=[256], r=1):
     # run conditioning information through fully connected layer
     with tf.variable_scope("linear_conditional_matrix_param", reuse=tf.AUTO_REUSE):
         mat = nn.fc_network(
-            conditioning, 2 * d, hidden_sizes=hidden_sizes, name='mlp', output_init_range=0,
+            conditioning, 2 * d * r, hidden_sizes=hidden_sizes, name='mlp', output_init_range=0,
         )
         mat1, mat2 = tf.split(tf.squeeze(mat), 2, axis=1)
-        mat = tf.matmul(tf.expand_dims(mat1, -1), tf.expand_dims(mat2, 1))
+        
+        mat1 = tf.reshape(mat1, [tf.shape(mat1)[0], d, r])
+        mat2 = tf.reshape(mat2, [tf.shape(mat2)[0], r, d])
+
+        mat = tf.matmul(mat1, mat2)
         mat = mat - mat * tf.matrix_diag(tf.ones((tf.shape(mat)[0], d)))
     with tf.variable_scope("linear_conditional_bias", reuse=tf.AUTO_REUSE):
         bias = nn.fc_network(
@@ -211,7 +215,7 @@ def linear_conditional_matrix(conditioning, mat_params):
     mat_cond, bias_cond = linear_cond_values(
         tf.expand_dims(conditioning, axis=0), d)
     A = tf.tile(tf.expand_dims(mat_params, axis=0),
-                [set_size, 1, 1]) #+ mat_cond
+                [set_size, 1, 1]) + mat_cond
     bitmask = 1 - conditioning[:, d:]
     t = _bitmask_perm_matrix(bitmask)
     bias_cond = tf.squeeze(tf.matmul(t, tf.expand_dims(bias_cond, -1)))
