@@ -15,7 +15,7 @@ def main(home, ename, datapath):
         'print_iters': (100, ),
         'init_lr': (0.005, ),
         'lr_decay': (0.5, ),
-        'max_grad_norm': (10, ),
+        'max_grad_norm': (1, ),
         'train_iters': (60000, ),
         'first_do_linear_map': (False, ),
         'first_trainable_A': (False, ),
@@ -49,7 +49,7 @@ def main(home, ename, datapath):
         # 'standard': (True, ),
         'param_nlayers': (2, ),
         'ncomps': (40,),
-        'batch_size': (64, ),
+        'batch_size': (1024, ),
         'nsample_batches': (1, ),
         'samp_per_cond': (10, ),
         'trial': range(1),
@@ -57,14 +57,15 @@ def main(home, ename, datapath):
 
     is_image = False
     channels = 1
-    resize = 16
+    resize = 8
     noise_std = 0.0
     standardize = True
+    logit = True
     if 'mnist' in datapath:
         is_image = True
 
     fetcher = generate_fetchers(
-        is_image, channels, resize, noise_std, standardize)
+        is_image, channels, resize, noise_std, standardize, logit)
 
     ret_new = runner.run_experiment(
         datapath, arg_list=runner.misc.make_arguments(ac),
@@ -103,8 +104,8 @@ def main(home, ename, datapath):
     r_samples[bitmask == 0] = samples[sorted_bitmask != 0]
     r_samples *= (1 - bitmask)
 
-    if standardize:
-        r_samples = DatasetFetchers.reverse(r_samples)
+    r_samples = DatasetFetchers.reverse(
+        r_samples, is_image, standardize, logit)
 
     avg_samples = np.mean(r_samples, axis=1)  # [N,d]
 
