@@ -33,6 +33,12 @@ def reverse(x, name='reverse'):
             return x
     return z, logdet, invmap
 
+    # returns a matrix which pushes observed values up and zeros out unobserved values
+def _bitmask_perm_matrix(bitmask):
+    order = tf.contrib.framework.argsort(
+        bitmask, direction='DESCENDING', stable=True)
+    return tf.batch_gather(tf.matrix_diag(bitmask), order)
+
 
 def cond_reverse(x, conditioning, name='cond_reverse'):
     '''
@@ -207,9 +213,7 @@ def linear_conditional_matrix(conditioning, mat_params):
     A = tf.tile(tf.expand_dims(mat_params, axis=0),
                 [set_size, 1, 1]) #+ mat_cond
     bitmask = 1 - conditioning[:, d:]
-    order = tf.contrib.framework.argsort(
-        bitmask, direction='DESCENDING', stable=True)
-    t = tf.batch_gather(tf.matrix_diag(bitmask), order)
+    t = _bitmask_perm_matrix(bitmask)
     bias_cond = tf.squeeze(tf.matmul(t, tf.expand_dims(bias_cond, -1)))
     return tf.matmul(tf.matmul(t, A), tf.transpose(t, perm=[0, 2, 1])), bias_cond
 
@@ -697,6 +701,10 @@ def conditioning_transformation(x, conditioning, hidden_sizes,
                            output_init_range=output_irange,
                            activation=activation, name='ms')
         m, s = tf.split(ms, 2, 1)
+        bitmask = 1 - conditioning[:, d:]
+        t = tf.transpose(_bitmask_perm_matrix(bitmask), perm=[0,2,1])
+        s = tf.einsum('nd,ndi->ni', s, t)
+        m = tf.einsum('nd,ndi->ni', m, t)
         y = tf.multiply(x, tf.exp(s)) + m
         logdet = tf.reduce_sum(s, 1)
 
@@ -707,6 +715,10 @@ def conditioning_transformation(x, conditioning, hidden_sizes,
                                output_init_range=output_irange,
                                activation=activation, name='ms')
             m, s = tf.split(ms, 2, 1)
+            bitmask = 1 - conditioning[:, d:]
+            t = tf.transpose(_bitmask_perm_matrix(bitmask), perm=[0,2,1])
+            s = tf.einsum('nd,ndi->ni', s, t)
+            m = tf.einsum('nd,ndi->ni', m, t)
             x = tf.div(y - m, tf.exp(s))
             return x
 
