@@ -30,6 +30,10 @@ class RedConfig:
         self.trainable_A = misc.get_default(kwargs, 'trainable_A', True)
         self.trainable_b = misc.get_default(kwargs, 'trainable_b', True)
         self.mat_func = misc.get_default(kwargs, 'mat_func', trans.get_LU_map)
+        # cond_linear_map
+        self.cond_linear_rank = misc.get_default(kwargs, 'cond_linear_rank', 1)
+        self.cond_linear_hids = misc.get_default(
+            kwargs, 'cond_linear_hids', [256])
         # RNN transformation parameters.
         self.trans_state_size = misc.get_default(
             kwargs, 'trans_state_size', 16)
@@ -104,7 +108,8 @@ class RedConfig:
                 'trainable_b': self.trainable_b},
             trans.cond_linear_map: {
                 'mat_func': trans.get_cond_LU_map,
-            },
+                'cond_rank': self.cond_linear_rank,
+                'cond_hids': self.cond_linear_hids},
             trans.additive_coupling: {
                 'hidden_sizes': self.add_hidden_sizes,
                 'irange': self.add_irange,

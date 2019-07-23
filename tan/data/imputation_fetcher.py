@@ -62,6 +62,12 @@ def batch_resize(data, resize, channels):
     return resized_image.reshape([N, -1])
 
 
+def sigmoid(x):
+    return np.where(x >= 0,
+                    1 / (1 + np.exp(-x)),
+                    np.exp(x) / (1 + np.exp(x)))
+
+
 class BatchFetcher:
 
     stats = (None, None)
@@ -73,6 +79,7 @@ class BatchFetcher:
         self._N = datasets[0].shape[0]
         self._perm = np.random.permutation(self._N)
         self._curri = 0
+        self._logit = misc.get_default(kwargs, 'logit', True)
         self._standardize = misc.get_default(kwargs, 'standardize', False)
         self._noise_std = misc.get_default(kwargs, 'noise_std', 0.0)
         self._missing_prob = misc.get_default(kwargs, 'missing_prob', 0.5)
@@ -117,6 +124,19 @@ class BatchFetcher:
             batches = np.array(batches, dtype='float32')
             batches += np.random.rand(*batches.shape)
             batches /= 256.
+            if self._logit:
+                data_constraint = 0.9
+                pre_logit_scale = np.log(data_constraint)
+                pre_logit_scale -= np.log(1. - data_constraint)
+                pre_logit_scale = np.array(pre_logit_scale, dtype=np.float32)
+                logit_x_in = 2. * batches  # [0, 2]
+                logit_x_in -= 1.  # [-1, 1]
+                logit_x_in *= data_constraint  # [-.9, .9]
+                logit_x_in += 1.  # [.1, 1.9]
+                logit_x_in /= 2.  # [.05, .95]
+                # logit the data
+                logit_x_in = np.log(logit_x_in) - np.log(1. - logit_x_in)
+                batches = logit_x_in
         else:
             # add noise
             if self._noise_std > 0.:
@@ -131,9 +151,9 @@ class BatchFetcher:
         batches = np.array(batches, dtype='float32')
         bitmask = np.random.choice(
             [0, 1], batches.shape, p=[self._missing_prob, 1 - self._missing_prob])
-        
+
         # make sure all rows have at least 1 zero
-        zerod = np.where(np.sum(1-bitmask, axis=1)==0)[0]
+        zerod = np.where(np.sum(1 - bitmask, axis=1) == 0)[0]
         bitmask[zerod, np.random.choice(batches.shape[1], zerod.shape)] = 0
 
         x, c = input_format(batches, bitmask)
@@ -155,9 +175,17 @@ class DatasetFetchers:
         BatchFetcher.stats = (mean, std)
 
     @staticmethod
-    def reverse(samples):
-        mean, std = BatchFetcher.stats
-        return samples * std + mean
+    def reverse(samples, is_image, standardize, logit):
+        if is_image:
+            if logit:
+                samples = sigmoid(samples)
+            return samples * 255.
+        else:
+            if standardize:
+                mean, std = BatchFetcher.stats
+                return samples * std + mean
+            else:
+                return samples
 
     def reset_index(self):
         self.train.reset_index()
@@ -169,12 +197,12 @@ class DatasetFetchers:
         return self.train.dim
 
 
-def generate_fetchers(is_image, channels, resize, noise_std, standardize):
+def generate_fetchers(is_image, channels, resize, noise_std, standardize, logit):
     return lambda tr, va, ts: DatasetFetchers(
         tr, va, ts,
         is_image=is_image, channels=channels,
         resize=resize, noise_std=noise_std,
-        standardize=standardize)
+        standardize=standardize, logit=logit)
 
 
 def main():

@@ -5,15 +5,22 @@ from tan.demos import imputation_demo as demo
 
 home = './exp'
 synthetic_datasets = {
-    '2d': './data/synthetic/imp_2d.p',
-    '2d_fix': './data/synthetic/imp_2d_fix.p',
-    'rand': './data/synthetic/imp_rand.p',
-    '2d_4d': './data/synthetic/imp_2d_4d.p',
+    '2d': './dataset/synthetic/imp_2d.p',
+    '2d_fix': './dataset/synthetic/imp_2d_fix.p',
+    'rand': './dataset/synthetic/imp_rand.p',
+    '2d_4d': './dataset/synthetic/imp_2d_4d.p',
 }
 
 datasets = {
-    'mnist': './data/mnist/mnist.p',
-    'white': './data/uci/white.p'
+    'mnist': './dataset/mnist/mnist.p',
+    'white': './dataset/uci/white.p',
+    'white_vaeac': './dataset/uci/white_vaeac.p',
+    'hepmass': './dataset/uci/hepmass.p',
+    'maf_bsds': './dataset/maf/maf_bsds.p',
+    'maf_gas': './dataset/maf/maf_gas.p',
+    'maf_hepmass': './dataset/maf/maf_hepmass.p',
+    'maf_miniboone': './dataset/maf/maf_miniboone.p',
+    'maf_power': './dataset/maf/maf_power.p'
 }
 
 parser = argparse.ArgumentParser()
