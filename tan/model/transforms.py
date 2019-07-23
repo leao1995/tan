@@ -189,6 +189,7 @@ def linear_map(x, init_mat_params=None, init_b=None, mat_func=get_LU_map,
                                 trainable=trainable_b)
         A, logdet, invmap = mat_func(mat_params, b)
         z = tf.matmul(x, A) + tf.expand_dims(b, 0)
+    return z, logdet, invmap
 
 
 def linear_cond_values(conditioning, d, hidden_sizes=[256], r=1):
@@ -559,7 +560,7 @@ def additive_coupling(x, hidden_sizes, irange=None, output_irange=None,
 #
 def conditioning_transformation(x, conditioning, hidden_sizes,
                                 irange=None, output_irange=None,
-                                activation=tf.nn.relu,
+                                activation=tf.nn.tanh,
                                 name='cond_trans'):
     """
     Transform covariates x using a scaling and shift coming from a fully
@@ -595,7 +596,7 @@ def conditioning_transformation(x, conditioning, hidden_sizes,
     with tf.variable_scope(name, initializer=initializer) as scope:
         d = int(x.get_shape()[1])
         ms = nn.fc_network(conditioning, 2 * d, hidden_sizes=hidden_sizes,
-                           output_init_range=output_irange,
+                           output_init_range=0,
                            activation=activation, name='ms')
         m, s = tf.split(ms, 2, 1)
         bitmask = 1 - conditioning[:, d:]
@@ -609,7 +610,7 @@ def conditioning_transformation(x, conditioning, hidden_sizes,
     def invmap(y, conditioning):
         with tf.variable_scope(scope, reuse=True):
             ms = nn.fc_network(conditioning, 2 * d, hidden_sizes=hidden_sizes,
-                               output_init_range=output_irange,
+                               output_init_range=0,
                                activation=activation, name='ms')
             m, s = tf.split(ms, 2, 1)
             bitmask = 1 - conditioning[:, d:]

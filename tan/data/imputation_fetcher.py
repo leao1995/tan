@@ -184,7 +184,8 @@ class DatasetFetchers:
             if standardize:
                 mean, std = BatchFetcher.stats
                 return samples * std + mean
-        return samples
+            else:
+                return samples
 
     def reset_index(self):
         self.train.reset_index()
