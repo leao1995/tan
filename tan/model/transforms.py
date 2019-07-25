@@ -266,7 +266,7 @@ def cond_linear_map(x, conditioning, cond_rank=1, cond_hids=[256], mat_func=get_
     log determinant of Jacobian and inverse map.
     Args:
         x: N x d real tensor of covariates to be linearly transformed.
-        conditioning: 
+        conditioning:
         mat_func: function that returns matrix, log determinant, and inverse
             for linear mapping (see get_LU_map).
         trainable_A: boolean indicating whether to train matrix for linear
@@ -424,7 +424,7 @@ def rnn_coupling(x, rnn_class, name='rnn_coupling'):
     return z, logdet, invmap
 
 
-def cond_rnn_coupling(x, conditioning, rnn_class, name='cond_rnn_coupling'):
+def cond_rnn_coupling_old(x, conditioning, rnn_class, name='cond_rnn_coupling'):
     """
     RNN coupling where the covariates are transformed as z_i = x_i + m(s_i).
     Args:
@@ -469,6 +469,55 @@ def cond_rnn_coupling(x, conditioning, rnn_class, name='cond_rnn_coupling'):
             for t in range(d):
                 inp = tf.concat([x_t, conditioning], axis=1)
                 m_t, state = rnn_cell(inp, state)
+                z_t = tf.expand_dims(z[:, t], -1)
+                x_t = z_t - m_t
+                x_list.append(x_t)
+            x = tf.concat(x_list, 1)
+        return x
+    return z, logdet, invmap
+
+
+def cond_rnn_coupling(x, conditioning, rnn_class, name='cond_rnn_coupling'):
+    with tf.variable_scope(name) as scope:
+        # Shapes.
+        batch_size = tf.shape(x)[0]
+        d = int(x.get_shape()[1])
+        # Get RNN cell for transforming single covariates at a time.
+        rnn_cell = rnn_class(d)
+        # Initial variables.
+        state = rnn_cell.zero_state(batch_size, dtype=tf.float32)
+        x_t = -tf.ones((batch_size, 1), dtype=tf.float32)
+        z_list = []
+        bitmask = conditioning[:, d:]
+        inds = tf.contrib.framework.argsort(bitmask, axis=-1, stable=True)
+        for t in range(d):
+            inp = tf.concat([x_t, conditioning], axis=1)
+            m_t, state = rnn_cell(inp, state)
+            ind_t = tf.expand_dims(inds[:, t], -1)
+            m_t = tf.batch_gather(m_t, ind_t)
+            x_t = tf.expand_dims(x[:, t], -1)
+            z_t = x_t + m_t
+            z_list.append(z_t)
+        z = tf.concat(z_list, 1)
+        # Jacobian is lower triangular with unit diagonal.
+        logdet = 0.0
+
+    # inverse
+    def invmap(z, conditioning):
+        with tf.variable_scope(scope, reuse=True):
+            # Shapes.
+            batch_size = tf.shape(z)[0]
+            # Initial variables.
+            state = rnn_cell.zero_state(batch_size, dtype=tf.float32)
+            x_t = -tf.ones((batch_size, 1), dtype=tf.float32)
+            x_list = []
+            bitmask = conditioning[:, d:]
+            inds = tf.contrib.framework.argsort(bitmask, axis=-1, stable=True)
+            for t in range(d):
+                inp = tf.concat([x_t, conditioning], axis=1)
+                m_t, state = rnn_cell(inp, state)
+                ind_t = tf.expand_dims(inds[:, t], -1)
+                m_t = tf.batch_gather(m_t, ind_t)
                 z_t = tf.expand_dims(z[:, t], -1)
                 x_t = z_t - m_t
                 x_list.append(x_t)
