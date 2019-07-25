@@ -81,6 +81,13 @@ def sample_mm(params_dim, base_distribution='gaussian'):
     return samp
 
 
+def weighted_mean(params_dim):
+    logits, means, lsigmas = tf.split(params_dim, 3, 1)
+    weights = tf.nn.softmax(logits, axis=-1)
+
+    return tf.reduce_sum(weights * means, axis=1, keepdims=True)
+
+
 def independent_model(inputs, nparams, single_marginal=False,
                       standard=False, param_func=None, conditioning=None,
                       use_conditioning=False):
@@ -107,6 +114,7 @@ def independent_model(inputs, nparams, single_marginal=False,
         sampler: function that takes in a batch size and base component
             distribution and outputs a tensor of batch_size x d of samples.
     """
+    raise NotImplementedError()
     N = tf.shape(inputs)[0]
     d = int(inputs.get_shape()[1])
     bitmask = conditioning[:, -d:]
@@ -137,7 +145,8 @@ def independent_model(inputs, nparams, single_marginal=False,
 
     # sampling code
     def sampler(batch_size, base_distribution='gaussian', conditioning=None):
-        batch_size = batch_size if conditioning is None else tf.shape(conditioning)[0]
+        batch_size = batch_size if conditioning is None else tf.shape(conditioning)[
+            0]
         with tf.variable_scope(scope, reuse=True):
             # assuming padding with -1 to start.
             y_dims = []
@@ -324,7 +333,8 @@ def rnn_model(inputs, nparams, rnn_class, param_func=None, conditioning=None,
             state = rnn_cell.zero_state(batch_size, tf.float32)
             # assuming padding with -1 to start.
             input_ = -tf.ones((batch_size, 1))
-            y_dims = []
+            y_sams = []
+            y_means = []
             for j in range(d):
                 if conditioning is not None:
                     if conditioning_dim is not None:
@@ -338,7 +348,10 @@ def rnn_model(inputs, nparams, rnn_class, param_func=None, conditioning=None,
                         params_dim = param_func(params_dim, param_conditioning)
                 input_ = sample_mm(params_dim,
                                    base_distribution=base_distribution)
-                y_dims.append(input_)
-            y = tf.concat(y_dims, 1, 'y_samp')
-        return y
+                y_sams.append(input_)
+                mean_ = weighted_mean(params_dim)
+                y_means.append(mean_)
+            y_sam = tf.concat(y_sams, 1, 'y_samp')
+            y_mean = tf.concat(y_means, 1, 'y_mean')
+        return y_sam, y_mean
     return params, sampler

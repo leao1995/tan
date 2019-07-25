@@ -37,7 +37,7 @@ class TANModel(Model):
                  preproc_func=None, name='tan', base_distribution='gaussian',
                  sample_size=128,
                  trans_conditioning=True, conditional_conditioning=True,
-                 fc_conditioning=True):
+                 fc_conditioning=True, lambda_mse=-1.0):
         """
         Args:
             transformations: list of transformation functions that take input
@@ -81,13 +81,15 @@ class TANModel(Model):
         self.trans_conditioning = trans_conditioning
         self.conditional_conditioning = conditional_conditioning
         self.fc_conditioning = fc_conditioning
+        self.lambda_mse = lambda_mse
 
     def build_graph(self, inputs, conditioning=None, sampler_conditioning=None):
         print('Building {} Graph,\n\tconditioning {}'.format(
             self.name, conditioning))
         # Place holder for model input.
+        orig_inputs = inputs
         if self.preproc_func is not None:
-            inputs, inv_preproc = self.preproc_func(inputs)
+            inputs, inv_preproc = self.preproc_func(orig_inputs)
         else:
             inv_preproc = None
         inputs_shape = inputs.get_shape().as_list()[1:]
@@ -159,15 +161,18 @@ class TANModel(Model):
             self.cond_params, self.cond_sampler = self.conditional_model(
                 self.cond_inputs, param_func, conditioning)
             # Make transformed space samples.
-            self.z_samples = self.cond_sampler(
+            self.z_samples, self.z_means = self.cond_sampler(
                 self.sample_size, self.base_distribution, sampler_conditioning)
 
         # Invert to get samples back in original space.
         with tf.variable_scope(trans_scope, reuse=True):
             self.sampler = self.invmap(self.z_samples, sampler_conditioning)
             self.sampler = tf.reshape(self.sampler, [-1] + inputs_shape)
+            self.means = self.invmap(self.z_means, sampler_conditioning)
+            self.means = tf.reshape(self.means, [-1] + inputs_shape)
         if inv_preproc is not None:
             self.sampler = inv_preproc(self.sampler)
+            self.means = inv_preproc(self.means)
 
         # Get likelihoods of targets.
         with tf.variable_scope('likelihoods'):
@@ -175,7 +180,14 @@ class TANModel(Model):
                 self.cond_params, self.cond_targets, self.logdet, self.likefunc,
                 conditioning=conditioning)
 
-        return self.nll, self.llikes, self.sampler
+        with tf.variable_scope('mse_loss'):
+            self.mse_loss = likes.make_mse_loss(
+                self.means, orig_inputs, conditioning=conditioning)
+
+        self.nll = self.nll if self.lambda_mse < 0 else self.nll + \
+            self.lambda_mse * self.mse_loss
+
+        return self.nll, self.llikes, self.sampler, self.means
 
     def likefunc(self, params, targets):
         """ Helper function for make_nnl_loss. """

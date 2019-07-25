@@ -44,6 +44,38 @@ def calc_ground_truth(cond, dist_data):
     return new_mu, new_sigma
 
 
+def calc_likelihood(x, cond, dist_data):
+    if not isinstance(dist_data, list):
+        dist_data = [dist_data]
+    likel = []
+    for dist in dist_data:
+        mu, sigma = calc_ground_truth(cond, dist)
+        d = len(mu)
+        x = x[:d]
+        l = scipy.stats.multivariate_normal.pdf(x, mu, sigma)
+        likel.append(l)
+    return np.log(np.mean(likel))
+
+
+def sample(cond, dist_data):
+    if not isinstance(dist_data, list):
+        dist_data = [dist_data]
+    samples = []
+    for dist in dist_data:
+        mu, sigma = calc_ground_truth(cond, dist)
+        samp = np.random.multivariate_normal(mu, sigma, 500)
+        samples.append(samp)
+    samples = np.stack(samples, axis=-1)
+    num_modes = len(dist_data)
+    inds = np.random.choice(num_modes, [500])
+    sel = np.zeros([500, 1, num_modes])
+    for i, ind in enumerate(inds):
+        sel[i, :, ind] = 1.
+    x = np.sum(samples * sel, axis=-1)
+
+    return x
+
+
 def main(home, ename, datapath):
     ac = {
         'init_lr': (0.005, ),
@@ -104,31 +136,53 @@ def main(home, ename, datapath):
     num = test_data.shape[0]
     for n in range(num):
         cond = test_cond[n]
-        mu, sigma = calc_ground_truth(cond, dist_data)
-        d = len(mu)
-        x = test_data[n, :d]
-        ll = scipy.stats.multivariate_normal.logpdf(x, mu, sigma)
+        x = test_data[n]
+        ll = calc_likelihood(x, cond, dist_data)
         gt_lls.append(ll)
     gt_lls = np.mean(gt_lls)
     print('Average Ground Truth Test Log-Likelihood: {}\n'.format(gt_lls))
+
+    # mse
+    samples = results['test_samples']
+    samples_cond = results['test_samples_cond']
+    N, n, d = samples.shape
+    mask = samples_cond[:, d:]
+    avg_samples = np.mean(samples, axis=1)
+    sorted_mask = np.sort(1 - mask, axis=1)[:, ::-1]
+    r_samples = avg_samples.copy()
+    r_samples[mask == 0] = avg_samples[sorted_mask != 0]
+    r_samples *= (1 - mask)
+
+    complete_data = samples_cond[:, :d].copy()
+    complete_data[mask == 0] = test_data[sorted_mask != 0]
+    std = np.std(complete_data, axis=0)  # [d]
+    mse = (r_samples - complete_data)**2
+    mse *= (1 - mask)
+    mse = np.sum(mse, axis=0)
+    num = np.sum(1 - mask, axis=0)
+    num = np.maximum(np.ones_like(num), num)
+    mse /= num
+    nrmse = np.sqrt(mse) / std  # [d]
+    nrmse = np.mean(nrmse)
+    mse = np.mean(mse)
+
+    print('Average Test NRMSE: {}'.format(nrmse))
+    print('Average Test MSE: {}'.format(mse))
 
     # show samples
     if '2d' not in datapath:
         print('not 2d dataset, samples cannot be displayed.')
         return
 
-    assert ac['sample_per_cond'][0] > 1
-    samples = results['samples']  # [N, 500, d]
-    samples_cond = results['samples_cond'][0]['cond_val']  # [N, 2d]
-    for i in range(5):
+    for i in range(10):
         samp = samples[i, :, :2]
         cond = samples_cond[i]
-        mu, sigma = calc_ground_truth(cond, dist_data)
-        gt_samp = np.random.multivariate_normal(mu, sigma, 500)
+        gt_samp = sample(cond, dist_data)
 
         fig = plt.figure()
-        plt.scatter(samp[:, 0], samp[:, 1], c='red', label='samples')
-        plt.scatter(gt_samp[:, 0], gt_samp[:, 1],
+        plt.scatter(samp[:, 0], samp[:, 1], c='red',
+                    alpha=0.5, label='samples')
+        plt.scatter(gt_samp[:, 0], gt_samp[:, 1], alpha=0.5,
                     c='blue', label='groundtruth')
         plt.legend()
         plt.savefig(os.path.join(res_path, 'samp_{}.png'.format(i)))

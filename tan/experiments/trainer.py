@@ -81,7 +81,7 @@ class RedTrainer:
                  # Saving.
                  summary_log_path=None, save_path=None,
                  # Sampling.
-                 sampler=None, input_sample=False, nsamp=10, samp_per_cond=1):
+                 sampler=None, means=None, input_sample=False, nsamp=10, samp_per_cond=1):
         self._input_data = input_data
         self._conditioning_data = conditioning_data
 
@@ -158,6 +158,7 @@ class RedTrainer:
 
         # Sampling.
         self._sampler = sampler
+        self._means = means
         self._input_sample = input_sample
         self._nsamps = nsamp
         self._samp_per_cond = samp_per_cond
@@ -311,11 +312,12 @@ class RedTrainer:
         # Sample using best model.
         if self._sampler is not None:
             samples, samples_cond = self.sample(load_saved_model=True)
-            test_samples, test_samples_cond = self.sample_test(
+            test_samples, test_means, test_samples_cond = self.sample_test(
                 load_saved_model=True)
             return {'loss': best_loss, 'test_llks': test_llks,
                     'samples': samples, 'samples_cond': samples_cond,
-                    'test_samples': test_samples, 'test_samples_cond': test_samples_cond}
+                    'test_samples': test_samples, 'test_means': test_means,
+                    'test_samples_cond': test_samples_cond}
         return {'loss': best_loss, 'test_llks': test_llks}
 
     def validation_loss(self, i):
@@ -373,6 +375,7 @@ class RedTrainer:
         else:
             feed_dict = None
         samples = []
+        means = []
         samples_cond = []
         try:
             while True:
@@ -396,18 +399,22 @@ class RedTrainer:
                         samp.append(
                             self._sess.run(self._sampler, feed_dict=feed_dict))
                     samp = np.stack(samp, 1)
+                mean = self._sess.run(self._means, feed_dict=feed_dict)
                 if padding > 0:
                     samp = samp[:n]
+                    mean = mean[:n]
                     samp_cond = samp_cond[:n]
                 samples.append(samp)
+                means.append(mean)
                 samples_cond.append(samp_cond)
         except IndexError:
             self._fetchers.test.reset_index()
             print('REACHED END')
         samples = np.concatenate(samples, axis=0)
+        means = np.concatenate(means, axis=0)
         samples_cond = np.concatenate(samples_cond, axis=0)
 
-        return samples, samples_cond
+        return samples, means, samples_cond
 
     def sample(self, load_saved_model=False):
         if load_saved_model:

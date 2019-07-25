@@ -73,6 +73,20 @@ def mixture_mse(params, targets, **kwargs):
     return -0.5 * sq_diff
 
 
+def make_mse_loss(predict, target, conditioning=None):
+    d = tf.shape(target)[1]
+    mask = conditioning[:, d:]
+    mask = tf.contrib.framework.sort(
+        1. - mask, axis=-1, direction='DESCENDING')
+    mse = tf.square(predict - target) * mask
+    mse = tf.reduce_sum(mse, axis=1)
+    num = tf.cast(tf.reduce_sum(mask, axis=1), tf.float32)
+    num = tf.maximum(tf.ones_like(num), num)
+    loss = tf.reduce_mean(mse / num)
+
+    return loss
+
+
 def make_nll_loss(logits, targets, logdetmap, likefunc=mixture_likelihoods,
                   min_like=None, conditioning=None):
     """Given log-unnormalized mixture weights for equi-spaced truncated
@@ -90,7 +104,7 @@ def make_nll_loss(logits, targets, logdetmap, likefunc=mixture_likelihoods,
         ll: N tensor of log likelihoods.
     """
     d = tf.shape(targets)[1]
-    bitmask = conditioning[:, -d:]
+    bitmask = conditioning[:, d:]
     with tf.variable_scope('nll_loss'):
         lls = log_likelihoods(logits, targets, logdetmap, likefunc=likefunc,
                               min_like=min_like, mask=bitmask)

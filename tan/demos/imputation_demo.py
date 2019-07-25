@@ -12,11 +12,12 @@ from ..data.imputation_fetcher import generate_fetchers, impute, DatasetFetchers
 
 def main(home, ename, datapath):
     ac = {
+        'lambda_mse': (1.0, 10.0,),
         'print_iters': (100, ),
         'init_lr': (0.005, ),
         'lr_decay': (0.5, ),
         'max_grad_norm': (1, ),
-        'train_iters': (60000, ),
+        'train_iters': (0, ),
         'first_do_linear_map': (False, ),
         'first_trainable_A': (False, ),
         'do_init_cond_trans': (True, ),
@@ -61,88 +62,110 @@ def main(home, ename, datapath):
     fetcher = generate_fetchers(
         is_image, channels, resize, noise_std, standardize, logit)
 
-    ret_new = runner.run_experiment(
+    best, all_results = runner.run_experiment(
         datapath, arg_list=runner.misc.make_arguments(ac),
         home=home, experiments_name=ename,
         fetcher_class=fetcher)
-    results = ret_new[0]['results']
 
-    res_path = os.path.join(home, 'results', ename)
-    runner.misc.make_path(res_path)
-    pickle.dump(results, open(os.path.join(res_path, 'results.p'), 'wb'))
+    for aid, results in enumerate(all_results):
+        res_path = os.path.join(home, 'results', ename, 'trail_{}'.format(aid))
+        runner.misc.make_path(res_path)
+        pickle.dump(results, open(os.path.join(res_path, 'results.p'), 'wb'))
 
-    # Get test likelihoods
-    test_llks = results['test_llks']
-    results['mean_test_llks'] = np.mean(test_llks)
-    results['std_test_llks'] = np.std(test_llks)
-    results['stderr_test_llks'] = \
-        2 * results['std_test_llks'] / np.sqrt(len(test_llks))
-    print('{}\nAverage Test Log-Likelihood: {} +/- {}\n'.format(
-        datapath, results['mean_test_llks'], results['stderr_test_llks']))
+        print('=' * 10, 'Trail {}'.format(aid), '=' * 10)
+        # Get test likelihoods
+        test_llks = results['test_llks']
+        results['mean_test_llks'] = np.mean(test_llks)
+        results['std_test_llks'] = np.std(test_llks)
+        results['stderr_test_llks'] = \
+            2 * results['std_test_llks'] / np.sqrt(len(test_llks))
+        print('{}\nAverage Test Log-Likelihood: {} +/- {}\n'.format(
+            datapath, results['mean_test_llks'], results['stderr_test_llks']))
 
-    # Get test MSE
-    print('Loading test data for computing MSE.')
-    with open(datapath, 'rb') as f:
-        dataset = pickle.load(f)
-        test_data = dataset['test']  # [N, d]
-    if is_image and resize > 0:
-        test_data = batch_resize(test_data, resize, channels)
-    samples = results['test_samples']  # [N, n, d]
-    samples_cond = results['test_samples_cond']  # [N, 2d]
-    assert samples.shape[0] == test_data.shape[0]
-    N, n, d = samples.shape
-    mask = samples_cond[:, d:]
-    bitmask = np.repeat(np.expand_dims(mask, axis=1), n, axis=1)  # [N,n,d]
-    sorted_bitmask = np.sort(1 - bitmask, axis=2)[:, :, ::-1]
-    r_samples = samples.copy()
-    r_samples[bitmask == 0] = samples[sorted_bitmask != 0]
-    r_samples *= (1 - bitmask)
+        # Get test MSE
+        print('Loading test data for computing MSE.')
+        with open(datapath, 'rb') as f:
+            dataset = pickle.load(f)
+            test_data = dataset['test']  # [N, d]
+        if is_image and resize > 0:
+            test_data = batch_resize(test_data, resize, channels)
+        samples = results['test_samples']  # [N, n, d]
+        means = results['test_means']  # [N, d]
+        samples_cond = results['test_samples_cond']  # [N, 2d]
 
-    r_samples = DatasetFetchers.reverse(
-        r_samples, is_image, standardize, logit)
+        assert samples.shape[0] == test_data.shape[0]
+        N, n, d = samples.shape
+        mask = samples_cond[:, d:]
+        bitmask = np.repeat(np.expand_dims(mask, axis=1), n, axis=1)  # [N,n,d]
+        sorted_bitmask = np.sort(1 - bitmask, axis=2)[:, :, ::-1]
+        r_samples = samples.copy()
+        r_samples[bitmask == 0] = samples[sorted_bitmask != 0]
+        r_samples *= (1 - bitmask)
 
-    avg_samples = np.mean(r_samples, axis=1)  # [N,d]
+        r_samples = DatasetFetchers.reverse(
+            r_samples, is_image, standardize, logit)
 
-    std = np.std(test_data, axis=0)  # [d]
-    mse = (avg_samples - test_data)**2
-    mse *= (1 - mask)
-    mse = np.sum(mse, axis=0)
-    num = np.sum(1 - mask, axis=0)
-    num = np.maximum(np.ones_like(num), num)
-    mse /= num
-    nrmse = np.sqrt(mse) / std  # [d]
-    nrmse = np.mean(nrmse)
-    mse = np.mean(mse)
+        avg_samples = np.mean(r_samples, axis=1)  # [N,d]
 
-    print('Average Test NRMSE: {}'.format(nrmse))
-    print('Average Test MSE: {}'.format(mse))
+        std = np.std(test_data, axis=0)  # [d]
+        mse = (avg_samples - test_data)**2
+        mse *= (1 - mask)
+        mse = np.sum(mse, axis=0)
+        num = np.sum(1 - mask, axis=0)
+        num = np.maximum(np.ones_like(num), num)
+        mse /= num
+        nrmse = np.sqrt(mse) / std  # [d]
+        nrmse = np.mean(nrmse)
+        mse = np.mean(mse)
 
-    #####################################################################
-    if not is_image:
-        print('not image, samples cannot be displayed.')
-        return
+        print('Average Test NRMSE (using samples): {}'.format(nrmse))
+        print('Average Test MSE (using samples): {}'.format(mse))
 
-    samples = results['samples']  # [N, 5, d]
-    samples_cond = results['samples_cond'][0]['cond_val']  # [N, 2d]
+        sorted_mask = np.sort(1 - mask, axis=1)[:, ::-1]
+        r_means = means.copy()
+        r_means[mask == 0] = means[sorted_mask != 0]
+        r_means *= (1 - mask)
 
-    N, n, d = samples.shape
-    s = int(np.sqrt(d / channels))
-    for i in range(5):
-        samp = samples[i]
-        cond = samples_cond[i]
-        img = []
+        r_means = DatasetFetchers.reverse(
+            r_means, is_image, standardize, logit)
 
-        c = cond[:d]
-        c = c.reshape([s, s, channels])
-        c = np.squeeze(c, axis=-1)
-        c = (c * 255).astype('uint8')
-        img.append(c)
-        for k in range(n):
-            x = impute(samp[k], cond)
-            x = x.reshape([s, s, channels])
-            x = np.squeeze(x, axis=-1)
-            x = (x * 255).astype('uint8')
-            img.append(x)
+        mse = (r_means - test_data)**2
+        mse *= (1 - mask)
+        mse = np.sum(mse, axis=0)
+        mse /= num
+        nrmse = np.sqrt(mse) / std  # [d]
+        nrmse = np.mean(nrmse)
+        mse = np.mean(mse)
 
-        img = np.concatenate(img, axis=1)
-        plt.imsave(os.path.join(res_path, 'samp_{}.png'.format(i)), img)
+        print('Average Test NRMSE (using means): {}'.format(nrmse))
+        print('Average Test MSE (using means): {}'.format(mse))
+
+        #####################################################################
+        if not is_image:
+            print('not image, samples cannot be displayed.')
+        else:
+            samples = results['samples']  # [N, 5, d]
+            samples_cond = results['samples_cond'][0]['cond_val']  # [N, 2d]
+
+            N, n, d = samples.shape
+            s = int(np.sqrt(d / channels))
+            for i in range(5):
+                samp = samples[i]
+                cond = samples_cond[i]
+                img = []
+
+                c = cond[:d]
+                c = c.reshape([s, s, channels])
+                c = np.squeeze(c, axis=-1)
+                c = (c * 255).astype('uint8')
+                img.append(c)
+                for k in range(n):
+                    x = impute(samp[k], cond)
+                    x = x.reshape([s, s, channels])
+                    x = np.squeeze(x, axis=-1)
+                    x = (x * 255).astype('uint8')
+                    img.append(x)
+
+                img = np.concatenate(img, axis=1)
+                plt.imsave(os.path.join(
+                    res_path, 'samp_{}.png'.format(i)), img)

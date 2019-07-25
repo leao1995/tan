@@ -84,14 +84,16 @@ def main(path=None, dimension=15, dst_type='rand'):
         "train": training, "train_labels": training_l,
         "valid": validation, "valid_labels": validation_l,
         "test": test, "test_labels": test_l,
-        'dist_data': dist_data
+        'dist_data': dist_data,
+        'x': ys,
+        'bitmask': bitmask
     }
 
     p.dump(dataset, open(path, 'wb'))
 
 
 if __name__ == '__main__':
-    main('./imp_rand.p', 15, 'rand')
-    main('./imp_2d.p', 15, '2d')
-    main('./imp_2d_fix.p', 15, '2d_fix')
-    main('./imp_2d_4d.p', 4, '2d')
+    # main('./imp_rand.p', 15, 'rand')
+    # main('./imp_2d.p', 15, '2d')
+    # main('./imp_2d_fix.p', 15, '2d_fix')
+    main('./dataset/synthetic/imp_2d_4d.p', 4, '2d')

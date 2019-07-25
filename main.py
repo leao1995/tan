@@ -1,5 +1,7 @@
 import os
 import argparse
+import numpy as np
+import tensorflow as tf
 from tan.demos import synthetic_imputation_demo as sdemo
 from tan.demos import imputation_demo as demo
 
@@ -9,6 +11,8 @@ synthetic_datasets = {
     '2d_fix': './dataset/synthetic/imp_2d_fix.p',
     'rand': './dataset/synthetic/imp_rand.p',
     '2d_4d': './dataset/synthetic/imp_2d_4d.p',
+    'm2_2d_4d': './dataset/synthetic/imp_m2_2d_4d.p',
+    'm4_2d_4d': './dataset/synthetic/imp_m4_2d_4d.p'
 }
 
 datasets = {
@@ -30,6 +34,8 @@ parser.add_argument('--ename', type=str)
 args = parser.parse_args()
 
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+np.random.seed(123)
+tf.set_random_seed(123)
 
 if args.dataset in synthetic_datasets:
     sdemo.main(home, args.ename, synthetic_datasets[args.dataset])

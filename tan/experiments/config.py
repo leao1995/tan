@@ -203,6 +203,7 @@ class RedConfig:
 
         # Training configurations.
         #
+        self.lambda_mse = misc.get_default(kwargs, 'lambda_mse', -1.0)
         self.initializer_class = misc.get_default(kwargs, 'initializer_class',
                                                   None)
         self.initializer_args = misc.get_default(

@@ -133,13 +133,13 @@ def print_value(value):
     return string
 
 
-def get_exp_name(args):
+def get_exp_name(args, aid):
     # sorted_keys = np.sort(args.keys())
     # exp_name = reduce(lambda x, y: x+y,
     #                   ['{}--{}/'.format(k, shorten(print_value(args[k])))
     #                    for k in sorted_keys], '')
     # return exp_name
-    return ''
+    return 'trail_{}'.format(aid)
 
 
 def make_trainer(dataset, base_save_path, base_log_path,
@@ -164,7 +164,7 @@ def make_trainer(dataset, base_save_path, base_log_path,
         fetchers = fetcher_class(
             (dataset['train'],), (dataset['valid'],), (dataset['test'],))
 
-    def main(args):
+    def main(args, aid):
         # Make config for trial with defualt and given arguments.
         trial_args = copy.copy(kwargs)
         for ind in args:
@@ -197,12 +197,12 @@ def make_trainer(dataset, base_save_path, base_log_path,
         config = econfig.RedConfig(**trial_args)
         # Make directories specific to experiment trial.
         if base_save_path is not None:
-            save_path = os.path.join(base_save_path, get_exp_name(args))
+            save_path = os.path.join(base_save_path, get_exp_name(args, aid))
             misc.make_path(save_path)
         else:
             AttributeError('Must provide save path for validating model')
         if base_log_path is not None:
-            log_path = os.path.join(base_log_path, get_exp_name(args))
+            log_path = os.path.join(base_log_path, get_exp_name(args, aid))
             misc.make_path(log_path)
         else:
             log_path = None
@@ -271,11 +271,11 @@ def run_experiment(data, arg_list=ARG_LIST, def_args=DEF_ARGS,
         retries_left = retries
         print('RUNNING {}'.format(experiments_name))
         print('[{}/{}] {}'.format(ai + 1, len(arg_list), args))
-        results.append(main(args))
+        results.append(main(args, ai))
         while invalid_result(results[-1]) and retries_left > 0:
             print('[{}/{}] Retrying {}'.format(ai + 1, len(arg_list), args))
             retries_left -= 1
-            results[-1] = main(args)
+            results[-1] = main(args, ai)
 
         better_result = not invalid_result(results[-1]) and (
             invalid_result(best) or best['loss'] > results[-1]['loss']

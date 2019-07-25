@@ -52,8 +52,9 @@ class Experiment:
                         dropout_keep_prob=dropout_keeprate,
                         nparams=config.nparams,
                         base_distribution=config.base_distribution,
-                        sample_size=config.sample_batch_size)
-                    self.nll, self.llikes, self.sampler = \
+                        sample_size=config.sample_batch_size,
+                        lambda_mse=config.lambda_mse)
+                    self.nll, self.llikes, self.sampler, self.means = \
                         self.model.build_graph(inputs_pl, conditioning_pl)
                 if get_trainer:
                     tf_config = tf.ConfigProto()
@@ -87,6 +88,7 @@ class Experiment:
                             summary_log_path=summary_location,
                             save_path=save_location,
                             sampler=self.sampler,
+                            means=self.means,
                             nsamp=config.nsample_batches,
                             samp_per_cond=config.samp_per_cond)
 
