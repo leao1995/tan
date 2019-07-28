@@ -184,8 +184,9 @@ class TANModel(Model):
             self.mse_loss = likes.make_mse_loss(
                 self.means, orig_inputs, conditioning=conditioning)
 
-        self.nll = self.nll if self.lambda_mse < 0 else self.nll + \
-            self.lambda_mse * self.mse_loss
+        if self.lambda_mse is not None:
+            print('using mse loss with mean imputation.')
+            self.nll += self.lambda_mse * self.mse_loss
 
         return self.nll, self.llikes, self.sampler, self.means
 

@@ -12,12 +12,12 @@ from ..data.imputation_fetcher import generate_fetchers, impute, DatasetFetchers
 
 def main(home, ename, datapath):
     ac = {
-        'lambda_mse': (1.0, 10.0,),
+        'lambda_mse': (None,),
         'print_iters': (100, ),
         'init_lr': (0.005, ),
         'lr_decay': (0.5, ),
         'max_grad_norm': (1, ),
-        'train_iters': (0, ),
+        'train_iters': (60000, ),
         'first_do_linear_map': (False, ),
         'first_trainable_A': (False, ),
         'do_init_cond_trans': (True, ),
@@ -34,7 +34,7 @@ def main(home, ename, datapath):
             trans.cond_log_rescale, trans.cond_rnn_coupling, trans.cond_reverse,
             trans.cond_linear_map, trans.cond_leaky_transformation,
             trans.cond_log_rescale, ], ),
-        'cond_linear_rank': (5,),
+        'cond_linear_rank': (-1,),
         'cond_linear_hids': ([256, 256],),
         'rnn_coupling_params': ({'units': 256, 'num_layers': 2}, ),
         'cond_func': (runner.conds.rnn_model, ),
