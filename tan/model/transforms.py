@@ -57,6 +57,10 @@ def cond_reverse(x, conditioning, name='cond_reverse'):
         z = tf.reverse(x, [-1])
         z = tf.batch_gather(z, ind)
         logdet = 0.0
+        # reverse conditioning
+        conditioning = tf.concat(
+            [tf.reverse(conditioning[:, :d], [-1]),
+             tf.reverse(conditioning[:, d:], [-1])], axis=1)
 
     def invmap(z, conditioning):
         with tf.variable_scope(scope, reuse=True):
@@ -68,9 +72,14 @@ def cond_reverse(x, conditioning, name='cond_reverse'):
                 m, axis=-1, direction='DESCENDING', stable=True)
             x = tf.reverse(z, [-1])
             x = tf.batch_gather(x, ind)
-            return x
+            # reverse conditioning
+            conditioning = tf.concat(
+                [tf.reverse(conditioning[:, :d], [-1]),
+                 tf.reverse(conditioning[:, d:], [-1])], axis=1)
 
-    return z, logdet, invmap
+            return x, conditioning
+
+    return z, conditioning, logdet, invmap
 
 
 def permute(x, perm, name='perm'):
@@ -310,8 +319,9 @@ def cond_linear_map(x, conditioning, cond_rank=1, cond_hids=[256], mat_func=get_
                 sol = tf.matrix_triangular_solve(Ut, zt)
                 x = tf.matrix_triangular_solve(Lt, sol, lower=False)
 
-                return tf.squeeze(x)
-    return z, logdet, invmap
+            return tf.squeeze(x), conditioning
+
+    return z, conditioning, logdet, invmap
 
 
 # %% RNN transformation functions.
@@ -473,8 +483,8 @@ def cond_rnn_coupling_old(x, conditioning, rnn_class, name='cond_rnn_coupling'):
                 x_t = z_t - m_t
                 x_list.append(x_t)
             x = tf.concat(x_list, 1)
-        return x
-    return z, logdet, invmap
+        return x, conditioning
+    return z, conditioning, logdet, invmap
 
 
 def cond_rnn_coupling(x, conditioning, rnn_class, name='cond_rnn_coupling'):
@@ -522,8 +532,8 @@ def cond_rnn_coupling(x, conditioning, rnn_class, name='cond_rnn_coupling'):
                 x_t = z_t - m_t
                 x_list.append(x_t)
             x = tf.concat(x_list, 1)
-        return x
-    return z, logdet, invmap
+        return x, conditioning
+    return z, conditioning, logdet, invmap
 
 
 def leaky_relu(x, alpha):
@@ -563,9 +573,9 @@ def cond_leaky_transformation(x, conditioning, alpha=None):
     logdet = num_negative * tf.log(alpha)
 
     def invmap(z, conditioning):
-        return tf.minimum(z, z / alpha)
+        return tf.minimum(z, z / alpha), conditioning
 
-    return z, logdet, invmap
+    return z, conditioning, logdet, invmap
 
 # %% NICE/NVP transformation function.
 #
@@ -603,6 +613,89 @@ def additive_coupling(x, hidden_sizes, irange=None, output_irange=None,
             return x
 
     return y, logdet, invmap
+
+
+def cond_additive_coupling(x, conditioning, hidden_sizes, irange=None, output_irange=None,
+                           activation=tf.nn.relu, name='cond_additive_coupling'):
+    if irange is not None:
+        initializer = tf.random_uniform_initializer(-irange, irange)
+    else:
+        initializer = None
+    with tf.variable_scope(name, initializer=initializer) as scope:
+        N = tf.shape(x)[0]
+        d = int(x.get_shape()[1])
+        # build mask
+        mask = np.arange(d, dtype=np.float32)
+        mask = tf.mod(mask, 2)
+        mask = tf.reshape(mask, [1, d])
+        mask = tf.tile(mask, [N, 1])
+        bitmask = conditioning[:, d:]
+        # rearrange
+        xo = conditioning[:, :d] * bitmask
+        perm = _bitmask_perm_matrix(1 - bitmask)
+        xu = tf.matmul(tf.transpose(
+            perm, [0, 2, 1]), tf.expand_dims(x, axis=-1))
+        xu = tf.squeeze(xu, axis=-1)
+        xc = xo + xu
+        # coupling
+        logdet = 0.0
+        with tf.variable_scope('part1') as part1:
+            inp = xc * mask * bitmask
+            inp = tf.concat([inp, mask, bitmask], axis=1)
+            m = nn.fc_network(inp, d, hidden_sizes=hidden_sizes,
+                              output_init_range=output_irange,
+                              activation=activation, name='m1')
+            m *= (1. - mask) * (1. - bitmask)
+            xc += m
+        with tf.variable_scope('part2') as part2:
+            inp = xc * (1. - mask) * bitmask
+            inp = tf.concat([inp, 1. - mask, bitmask], axis=1)
+            m = nn.fc_network(inp, d, hidden_sizes=hidden_sizes,
+                              output_init_range=output_irange,
+                              activation=activation, name='m2')
+            m *= mask * (1. - bitmask)
+            xc += m
+        x = tf.matmul(perm, tf.expand_dims(xc, axis=-1))
+        x = tf.squeeze(x, axis=-1)
+
+    def invmap(z, conditioning):
+        with tf.variable_scope(scope, reuse=True):
+            N = tf.shape(z)[0]
+            d = int(z.get_shape()[1])
+            # build mask
+            mask = np.arange(d, dtype=np.float32)
+            mask = tf.mod(mask, 2)
+            mask = tf.reshape(mask, [1, d])
+            mask = tf.tile(mask, [N, 1])
+            bitmask = conditioning[:, d:]
+            # rearrange
+            zo = conditioning[:, :d] * bitmask
+            perm = _bitmask_perm_matrix(1 - bitmask)
+            zu = tf.matmul(tf.transpose(
+                perm, [0, 2, 1]), tf.expand_dims(z, axis=-1))
+            zu = tf.squeeze(zu, axis=-1)
+            zc = zo + zu
+            # coupling
+            with tf.variable_scope(part2, reuse=True):
+                inp = zc * (1. - mask) * bitmask
+                inp = tf.concat([inp, 1. - mask, bitmask], axis=1)
+                m = nn.fc_network(inp, d, hidden_sizes=hidden_sizes,
+                                  output_init_range=output_irange, reuse=True,
+                                  activation=activation, name='m2')
+                m *= mask * (1. - bitmask)
+                zc -= m
+            with tf.variable_scope(part1, reuse=True):
+                inp = zc * mask * bitmask
+                inp = tf.concat([inp, mask, bitmask], axis=1)
+                m = nn.fc_network(inp, d, hidden_sizes=hidden_sizes,
+                                  output_init_range=output_irange, reuse=True,
+                                  activation=activation, name='m1')
+                m *= (1. - mask) * (1. - bitmask)
+                zc -= m
+            z = tf.matmul(perm, tf.expand_dims(zc, axis=-1))
+            z = tf.squeeze(z, axis=-1)
+        return z, conditioning
+    return x, conditioning, logdet, invmap
 
 
 # %% Conditional based transformation
@@ -667,9 +760,9 @@ def conditioning_transformation(x, conditioning, hidden_sizes,
             s = tf.einsum('nd,ndi->ni', s, t)
             m = tf.einsum('nd,ndi->ni', m, t)
             x = tf.div(y - m, tf.exp(s))
-            return x
+        return x, conditioning
 
-    return y, logdet, invmap
+    return y, conditioning, logdet, invmap
 
 
 # %% Simple Transformations.
@@ -748,9 +841,9 @@ def cond_log_rescale(x, conditioning, init_zeros=True, name='cond_rescale'):
             s_tiled = tf.tile(s, [N, 1])
             su = tf.batch_gather(s_tiled, ind)
             x = tf.divide(y, tf.exp(su), name='y_inv')
-            return x
+        return x, conditioning
 
-    return y, logdet, invmap
+    return y, conditioning, logdet, invmap
 
 
 def shift(x, init_zeros=True, name='shift'):
@@ -839,7 +932,7 @@ def transformer(inputs, transformations, conditioning=None):
     for i, trans in enumerate(transformations):
         with tf.variable_scope('transformation_{}'.format(i)):
             try:
-                y, ldet, imap = trans(y, conditioning)
+                y, conditioning, ldet, imap = trans(y, conditioning)
             except TypeError:  # Does not take in conditioning values.
                 y, ldet, imap = trans(y)
             logdet += ldet
@@ -853,7 +946,7 @@ def transformer(inputs, transformations, conditioning=None):
         for i in range(ntrans - 1, -1, -1):
             with tf.variable_scope('transformation_{}'.format(i)):
                 try:
-                    z = invmaps[i](z, conditioning)
+                    z, conditioning = invmaps[i](z, conditioning)
                 except TypeError:  # Does not take in conditioning values.
                     z = invmaps[i](z)
         return z

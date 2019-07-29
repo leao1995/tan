@@ -114,6 +114,10 @@ class RedConfig:
                 'hidden_sizes': self.add_hidden_sizes,
                 'irange': self.add_irange,
                 'output_irange': self.add_output_irange},
+            trans.cond_additive_coupling: {
+                'hidden_sizes': self.add_hidden_sizes,
+                'irange': self.add_irange,
+                'output_irange': self.add_output_irange},
             trans.rescale: {
                 'init_constant': self.rescale_init_constant},
             trans.simple_rnn_transform: {

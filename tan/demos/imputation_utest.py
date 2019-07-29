@@ -18,55 +18,67 @@ def test_transformations(xs, cond):
         tf.float32, (cond.shape[0], cond.shape[1]), 'conditioning'
     )
 
-    # cond_log_rescale
-    z, det, invmap = trans.cond_log_rescale(inputs_pl, conditioning_pl)
-    x_rec = invmap(z, conditioning_pl)
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        inv = sess.run(x_rec,
-                       feed_dict={inputs_pl: xs, conditioning_pl: cond}
-                       )
-        err = np.mean(np.abs(xs - inv))
-        print('cond_log_rescale:', err)
+    # # cond_log_rescale
+    # z, det, invmap = trans.cond_log_rescale(inputs_pl, conditioning_pl)
+    # x_rec = invmap(z, conditioning_pl)
+    # with tf.Session() as sess:
+    #     sess.run(tf.global_variables_initializer())
+    #     inv = sess.run(x_rec,
+    #                    feed_dict={inputs_pl: xs, conditioning_pl: cond}
+    #                    )
+    #     err = np.mean(np.abs(xs - inv))
+    #     print('cond_log_rescale:', err)
 
-    # cond_reverse
-    z, det, invmap = trans.cond_reverse(inputs_pl, conditioning_pl)
-    x_rec = invmap(z, conditioning_pl)
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        inv = sess.run(x_rec,
-                       feed_dict={inputs_pl: xs, conditioning_pl: cond}
-                       )
-        err = np.mean(np.abs(xs - inv))
-        print('cond_reverse:', err)
+    # # cond_reverse
+    # z, det, invmap = trans.cond_reverse(inputs_pl, conditioning_pl)
+    # x_rec = invmap(z, conditioning_pl)
+    # with tf.Session() as sess:
+    #     sess.run(tf.global_variables_initializer())
+    #     inv = sess.run(x_rec,
+    #                    feed_dict={inputs_pl: xs, conditioning_pl: cond}
+    #                    )
+    #     err = np.mean(np.abs(xs - inv))
+    #     print('cond_reverse:', err)
 
-    # cond_leaky
-    z, det, invmap = trans.cond_leaky_transformation(
-        inputs_pl, conditioning_pl)
-    x_rec = invmap(z, conditioning_pl)
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        inv = sess.run(x_rec,
-                       feed_dict={inputs_pl: xs, conditioning_pl: cond}
-                       )
-        err = np.mean(np.abs(xs - inv))
-        print('cond_leaky:', err)
+    # # cond_leaky
+    # z, det, invmap = trans.cond_leaky_transformation(
+    #     inputs_pl, conditioning_pl)
+    # x_rec = invmap(z, conditioning_pl)
+    # with tf.Session() as sess:
+    #     sess.run(tf.global_variables_initializer())
+    #     inv = sess.run(x_rec,
+    #                    feed_dict={inputs_pl: xs, conditioning_pl: cond}
+    #                    )
+    #     err = np.mean(np.abs(xs - inv))
+    #     print('cond_leaky:', err)
 
-    # cond_rnn_coupling
-    rnn_class = cells.GRUCell()
-    z, det, invmap = trans.cond_rnn_coupling(
-        inputs_pl, conditioning_pl, rnn_class)
-    x_rec = invmap(z, conditioning_pl)
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        inv = sess.run(x_rec,
-                       feed_dict={inputs_pl: xs, conditioning_pl: cond}
-                       )
-        err = np.mean(np.abs(xs - inv))
-        print('cond_rnn_coupling:', err)
+    # # cond_rnn_coupling
+    # rnn_class = cells.GRUCell()
+    # z, det, invmap = trans.cond_rnn_coupling(
+    #     inputs_pl, conditioning_pl, rnn_class)
+    # x_rec = invmap(z, conditioning_pl)
+    # with tf.Session() as sess:
+    #     sess.run(tf.global_variables_initializer())
+    #     inv = sess.run(x_rec,
+    #                    feed_dict={inputs_pl: xs, conditioning_pl: cond}
+    #                    )
+    #     err = np.mean(np.abs(xs - inv))
+    #     print('cond_rnn_coupling:', err)
 
-    # cond_trans
-    z, det, invmap = trans.conditioning_transformation(
+    # # cond_trans
+    # z, det, invmap = trans.conditioning_transformation(
+    #     inputs_pl, conditioning_pl, [256])
+    # x_rec = invmap(z, conditioning_pl)
+    # with tf.Session() as sess:
+    #     sess.run(tf.global_variables_initializer())
+    #     inv = sess.run(x_rec,
+    #                    feed_dict={inputs_pl: xs, conditioning_pl: cond}
+    #                    )
+    #     err = np.mean(np.abs(xs - inv))
+    #     print('conditioning:', err)
+
+    # cond_additive_coupling
+    z, c, det, invmap = trans.cond_additive_coupling(
         inputs_pl, conditioning_pl, [256])
     x_rec = invmap(z, conditioning_pl)
     with tf.Session() as sess:
@@ -74,28 +86,32 @@ def test_transformations(xs, cond):
         inv = sess.run(x_rec,
                        feed_dict={inputs_pl: xs, conditioning_pl: cond}
                        )
-        err = np.mean(np.abs(xs - inv))
-        print('conditioning:', err)
+        d = xs.shape[1]
+        mask = 1. - cond[:, d:]
+        mask = np.sort(mask, axis=-1)[:, ::-1]
+        err = np.abs(xs - inv) * mask
+        err = np.mean(err)
+        print('additive:', err)
 
-    # cond_linear
-    inputs_pl = tf.placeholder(
-        tf.float32, (1024, xs.shape[1]), 'inputs'
-    )
-    conditioning_pl = tf.placeholder(
-        tf.float32, (1024, cond.shape[1]), 'conditioning'
-    )
-    z, det, invmap = trans.cond_linear_map(
-        inputs_pl, conditioning_pl, cond_rank=5)
-    x_rec = invmap(z, conditioning_pl)
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        xs = xs[:1024]
-        cond = cond[:1024]
-        inv = sess.run(x_rec,
-                       feed_dict={inputs_pl: xs, conditioning_pl: cond}
-                       )
-        err = np.mean(np.abs(xs - inv))
-        print('cond_linear:', err)
+    # # cond_linear
+    # inputs_pl = tf.placeholder(
+    #     tf.float32, (1024, xs.shape[1]), 'inputs'
+    # )
+    # conditioning_pl = tf.placeholder(
+    #     tf.float32, (1024, cond.shape[1]), 'conditioning'
+    # )
+    # z, det, invmap = trans.cond_linear_map(
+    #     inputs_pl, conditioning_pl, cond_rank=5)
+    # x_rec = invmap(z, conditioning_pl)
+    # with tf.Session() as sess:
+    #     sess.run(tf.global_variables_initializer())
+    #     xs = xs[:1024]
+    #     cond = cond[:1024]
+    #     inv = sess.run(x_rec,
+    #                    feed_dict={inputs_pl: xs, conditioning_pl: cond}
+    #                    )
+    #     err = np.mean(np.abs(xs - inv))
+    #     print('cond_linear:', err)
 
 
 def test_conditionals(xs, cond):
