@@ -111,7 +111,7 @@ class TANModel(Model):
             'transformations',
             # regularizer=tf.contrib.layers.l2_regularizer(1.0, 'l2_trans_reg'),
         ) as trans_scope:
-            self.z, self.logdet, self.invmap = trans.transformer(
+            self.z, self.logdet, self.invmap, conditioning = trans.transformer(
                 inputs, self.transformations,
                 conditioning if self.trans_conditioning else None)
 

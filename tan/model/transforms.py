@@ -57,10 +57,6 @@ def cond_reverse(x, conditioning, name='cond_reverse'):
         z = tf.reverse(x, [-1])
         z = tf.batch_gather(z, ind)
         logdet = 0.0
-        # reverse conditioning
-        conditioning = tf.concat(
-            [tf.reverse(conditioning[:, :d], [-1]),
-             tf.reverse(conditioning[:, d:], [-1])], axis=1)
 
     def invmap(z, conditioning):
         with tf.variable_scope(scope, reuse=True):
@@ -77,9 +73,9 @@ def cond_reverse(x, conditioning, name='cond_reverse'):
                 [tf.reverse(conditioning[:, :d], [-1]),
                  tf.reverse(conditioning[:, d:], [-1])], axis=1)
 
-            return x, conditioning
+            return x
 
-    return z, conditioning, logdet, invmap
+    return z, logdet, invmap
 
 
 def permute(x, perm, name='perm'):
@@ -319,9 +315,9 @@ def cond_linear_map(x, conditioning, cond_rank=1, cond_hids=[256], mat_func=get_
                 sol = tf.matrix_triangular_solve(Ut, zt)
                 x = tf.matrix_triangular_solve(Lt, sol, lower=False)
 
-            return tf.squeeze(x), conditioning
+            return tf.squeeze(x)
 
-    return z, conditioning, logdet, invmap
+    return z, logdet, invmap
 
 
 # %% RNN transformation functions.
@@ -483,8 +479,8 @@ def cond_rnn_coupling_old(x, conditioning, rnn_class, name='cond_rnn_coupling'):
                 x_t = z_t - m_t
                 x_list.append(x_t)
             x = tf.concat(x_list, 1)
-        return x, conditioning
-    return z, conditioning, logdet, invmap
+        return x
+    return z, logdet, invmap
 
 
 def cond_rnn_coupling(x, conditioning, rnn_class, name='cond_rnn_coupling'):
@@ -532,8 +528,8 @@ def cond_rnn_coupling(x, conditioning, rnn_class, name='cond_rnn_coupling'):
                 x_t = z_t - m_t
                 x_list.append(x_t)
             x = tf.concat(x_list, 1)
-        return x, conditioning
-    return z, conditioning, logdet, invmap
+        return x
+    return z, logdet, invmap
 
 
 def leaky_relu(x, alpha):
@@ -573,9 +569,9 @@ def cond_leaky_transformation(x, conditioning, alpha=None):
     logdet = num_negative * tf.log(alpha)
 
     def invmap(z, conditioning):
-        return tf.minimum(z, z / alpha), conditioning
+        return tf.minimum(z, z / alpha)
 
-    return z, conditioning, logdet, invmap
+    return z, logdet, invmap
 
 # %% NICE/NVP transformation function.
 #
@@ -694,8 +690,8 @@ def cond_additive_coupling(x, conditioning, hidden_sizes, irange=None, output_ir
                 zc -= m
             z = tf.matmul(perm, tf.expand_dims(zc, axis=-1))
             z = tf.squeeze(z, axis=-1)
-        return z, conditioning
-    return x, conditioning, logdet, invmap
+        return z
+    return x, logdet, invmap
 
 
 # %% Conditional based transformation
@@ -760,9 +756,9 @@ def conditioning_transformation(x, conditioning, hidden_sizes,
             s = tf.einsum('nd,ndi->ni', s, t)
             m = tf.einsum('nd,ndi->ni', m, t)
             x = tf.div(y - m, tf.exp(s))
-        return x, conditioning
+        return x
 
-    return y, conditioning, logdet, invmap
+    return y, logdet, invmap
 
 
 # %% Simple Transformations.
@@ -841,9 +837,9 @@ def cond_log_rescale(x, conditioning, init_zeros=True, name='cond_rescale'):
             s_tiled = tf.tile(s, [N, 1])
             su = tf.batch_gather(s_tiled, ind)
             x = tf.divide(y, tf.exp(su), name='y_inv')
-        return x, conditioning
+        return x
 
-    return y, conditioning, logdet, invmap
+    return y, logdet, invmap
 
 
 def shift(x, init_zeros=True, name='shift'):
@@ -910,7 +906,7 @@ def logit_transform(x, alpha=0.05, max_val=256.0, name='logit_transform',
 # %% Transformation composition
 #
 # TODO: test to see if gives back identity with inverse.
-def transformer(inputs, transformations, conditioning=None):
+def transformer(inputs, transformations, conditioning=None, embedding_size=None):
     """Makes transormation on the r.v. X
     Args:
         inputs: N x d tensor of inputs
@@ -929,25 +925,41 @@ def transformer(inputs, transformations, conditioning=None):
     y = inputs
     invmaps = []
     logdet = 0.0
+    d = int(inputs.get_shape()[1])
     for i, trans in enumerate(transformations):
         with tf.variable_scope('transformation_{}'.format(i)):
             try:
-                y, conditioning, ldet, imap = trans(y, conditioning)
+                y, ldet, imap = trans(y, conditioning)
             except TypeError:  # Does not take in conditioning values.
                 y, ldet, imap = trans(y)
             logdet += ldet
             invmaps.append(imap)
+            bitmask = conditioning[:, d:]
+            conditioning = tf.concat((nn.fc_network(
+                conditioning, d, hidden_sizes=[256], name='feature_embedding', 
+                output_init_range=0, reuse=tf.AUTO_REUSE,
+            ), bitmask,), axis=1)
 
     # Make inverse by stacking inverses in reverse order.
     ntrans = len(invmaps)
     # print(invmaps[::-1])
 
     def invmap(z, conditioning=None):
+        # forward pass on conditioning information
+        conditions = []
+        for i in range(ntrans):
+            with tf.variable_scope('transformation_{}'.format(i)):
+                bitmask = conditioning[:, d:]
+                conditioning = tf.concat((nn.fc_network(
+                    conditioning, d, hidden_sizes=[256], name='feature_embedding', 
+                    output_init_range=0, reuse=tf.AUTO_REUSE,
+                ), bitmask,), axis=1)
+                conditions.append(conditioning)
         for i in range(ntrans - 1, -1, -1):
             with tf.variable_scope('transformation_{}'.format(i)):
                 try:
-                    z, conditioning = invmaps[i](z, conditioning)
+                    z = invmaps[i](z, conditions[i])
                 except TypeError:  # Does not take in conditioning values.
                     z = invmaps[i](z)
         return z
-    return y, logdet, invmap
+    return y, logdet, invmap, conditioning
