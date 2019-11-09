@@ -16,6 +16,7 @@ Conditional component to TANs, and code to sample.
 
 import tensorflow as tf
 from ..utils import linear
+from .transform import _combine_with_cond_info
 
 
 def make_in_out(y, prepend_func=tf.ones, scope='make_in_out'):
@@ -272,7 +273,7 @@ def cond_model(inputs, nparams, tied_model=False, tied_bias=True,
 
 
 # TODO: change to ram_model.
-def rnn_model(inputs, nparams, rnn_class, param_func=None, conditioning=None,
+def rnn_model(inputs, nparams, rnn_class, param_func=None, conditioning=None, cond_info_mask=None,
               conditioning_dim=None, use_conditioning=True):
     """ RAM RNN conditional model, where the hidden state for the conditional
     of the ith dimension is:
@@ -311,10 +312,11 @@ def rnn_model(inputs, nparams, rnn_class, param_func=None, conditioning=None,
         # If conditioning on values, make values visible to RNN at each
         # dimension by concating them to input dims.
         if conditioning is not None:
+            cond_info = _combine_with_cond_info(conditioning, cond_info_mask)
             if conditioning_dim is not None:
-                conditioning = linear.linear(conditioning, conditioning_dim)
+                cond_info = linear.linear(cond_info, conditioning_dim)
             tiled_conditioning = tf.tile(
-                tf.expand_dims(conditioning, 1), [1, d, 1])
+                tf.expand_dims(cond_info, 1), [1, d, 1])
             inputs = tf.concat(
                 (inputs, tiled_conditioning), 2)
         params = tf.nn.dynamic_rnn(rnn_cell, inputs, dtype=tf.float32)[0]

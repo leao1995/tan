@@ -36,6 +36,13 @@ def reverse(x, name='reverse'):
     # returns a matrix which pushes observed values up and zeros out unobserved values
 
 
+def _combine_with_cond_info(conditioning, cond_info_mask):
+    d = tf.shape(conditioning)[1] / 2
+    bitmask = conditioning[:, d:]
+    bitmask += 2*cond_info_mask
+
+    return tf.concat([conditioning[:, :d], bitmask], 1)
+
 def _bitmask_perm_matrix(bitmask):
     order = tf.contrib.framework.argsort(
         bitmask, direction='DESCENDING', stable=True)
@@ -77,9 +84,9 @@ def cond_reverse(x, conditioning, name='cond_reverse'):
                 [tf.reverse(conditioning[:, :d], [-1]),
                  tf.reverse(conditioning[:, d:], [-1])], axis=1)
 
-            return x, conditioning
+            return x
 
-    return z, conditioning, logdet, invmap
+    return z, logdet, invmap
 
 
 def permute(x, perm, name='perm'):
@@ -201,12 +208,13 @@ def linear_map(x, init_mat_params=None, init_b=None, mat_func=get_LU_map,
     return z, logdet, invmap
 
 
-def linear_cond_values(conditioning, d, hidden_sizes=[256], r=1):
+def linear_cond_values(conditioning, cond_info_mask, d, hidden_sizes=[256], r=1):
     # run conditioning information through fully connected layer
     with tf.variable_scope("linear_conditional_matrix_param", reuse=tf.AUTO_REUSE):
         r = r if r > 0 else d
         mat = nn.fc_network(
-            conditioning, 2 * d * r, hidden_sizes=hidden_sizes, name='mlp', output_init_range=0,
+            _combine_with_cond_info(conditioning, cond_info_mask), 2 * d * r, 
+            hidden_sizes=hidden_sizes, name='mlp', output_init_range=0,
         )
         mat1, mat2 = tf.split(tf.squeeze(mat), 2, axis=1)
 
@@ -216,12 +224,13 @@ def linear_cond_values(conditioning, d, hidden_sizes=[256], r=1):
         mat = tf.matmul(mat1, mat2)
     with tf.variable_scope("linear_conditional_bias", reuse=tf.AUTO_REUSE):
         bias = nn.fc_network(
-            conditioning, d, hidden_sizes=hidden_sizes, name='mlp', output_init_range=0
+            _combine_with_cond_info(conditioning, cond_info_mask), d, hidden_sizes=hidden_sizes, 
+            name='mlp', output_init_range=0
         )
     return tf.squeeze(mat), tf.squeeze(bias)
 
 
-def linear_conditional_matrix(conditioning, mat_params, rank, hids):
+def linear_conditional_matrix(conditioning, cond_info_mask, mat_params, rank, hids):
     d = int(conditioning.get_shape()[-1] / 2)
     set_size = conditioning.get_shape()[0]
     mat_cond, bias_cond = linear_cond_values(
@@ -269,7 +278,7 @@ def get_cond_LU_map(mat_params, b, conditioning):
     return A, logdet, U, L
 
 
-def cond_linear_map(x, conditioning, cond_rank=1, cond_hids=[256], mat_func=get_cond_LU_map,
+def cond_linear_map(x, conditioning, cond_info_map, cond_rank=1, cond_hids=[256], mat_func=get_cond_LU_map,
                     trainable_A=True, trainable_b=True, irange=1e-10, name='cond_linear_map'):
     """Return the linearly transformed, y^t = x^t * mat_func(mat_params) + b^t,
     log determinant of Jacobian and inverse map.
@@ -300,7 +309,7 @@ def cond_linear_map(x, conditioning, cond_rank=1, cond_hids=[256], mat_func=get_
             initializer=tf.eye(d, dtype=tf.float32), trainable=trainable_A
         )
         mats, b = linear_conditional_matrix(
-            conditioning, mat_params, cond_rank, cond_hids)
+            conditioning, cond_info_map, mat_params, cond_rank, cond_hids)
         A, logdet, _, _ = mat_func(mats, b, conditioning)
         z = tf.einsum('ai,aik->ak', x, A, name="mat_mul") + b
 
@@ -319,9 +328,9 @@ def cond_linear_map(x, conditioning, cond_rank=1, cond_hids=[256], mat_func=get_
                 sol = tf.matrix_triangular_solve(Ut, zt)
                 x = tf.matrix_triangular_solve(Lt, sol, lower=False)
 
-            return tf.squeeze(x), conditioning
+            return tf.squeeze(x)
 
-    return z, conditioning, logdet, invmap
+    return z, logdet, invmap
 
 
 # %% RNN transformation functions.
@@ -434,7 +443,7 @@ def rnn_coupling(x, rnn_class, name='rnn_coupling'):
     return z, logdet, invmap
 
 
-def cond_rnn_coupling_old(x, conditioning, rnn_class, name='cond_rnn_coupling'):
+def cond_rnn_coupling_old(x, conditioning, cond_info_map, rnn_class, name='cond_rnn_coupling'):
     """
     RNN coupling where the covariates are transformed as z_i = x_i + m(s_i).
     Args:
@@ -458,7 +467,7 @@ def cond_rnn_coupling_old(x, conditioning, rnn_class, name='cond_rnn_coupling'):
         x_t = -tf.ones((batch_size, 1), dtype=tf.float32)
         z_list = []
         for t in range(d):
-            inp = tf.concat([x_t, conditioning], axis=1)
+            inp = tf.concat([x_t, _combine_with_cond_info(conditioning, cond_info_mask)], axis=1)
             m_t, state = rnn_cell(inp, state)
             x_t = tf.expand_dims(x[:, t], -1)
             z_t = x_t + m_t
@@ -483,11 +492,11 @@ def cond_rnn_coupling_old(x, conditioning, rnn_class, name='cond_rnn_coupling'):
                 x_t = z_t - m_t
                 x_list.append(x_t)
             x = tf.concat(x_list, 1)
-        return x, conditioning
-    return z, conditioning, logdet, invmap
+        return x
+    return z, logdet, invmap
 
 
-def cond_rnn_coupling(x, conditioning, rnn_class, name='cond_rnn_coupling'):
+def cond_rnn_coupling(x, conditioning, cond_info_mask, rnn_class, name='cond_rnn_coupling'):
     with tf.variable_scope(name) as scope:
         # Shapes.
         batch_size = tf.shape(x)[0]
@@ -501,7 +510,9 @@ def cond_rnn_coupling(x, conditioning, rnn_class, name='cond_rnn_coupling'):
         bitmask = conditioning[:, d:]
         inds = tf.contrib.framework.argsort(bitmask, axis=-1, stable=True)
         for t in range(d):
-            inp = tf.concat([x_t, conditioning], axis=1)
+            inp = tf.concat([
+                x_t, _combine_with_cond_info(conditioning, cond_info_mask)
+            ], axis=1)
             m_t, state = rnn_cell(inp, state)
             ind_t = tf.expand_dims(inds[:, t], -1)
             m_t = tf.batch_gather(m_t, ind_t)
@@ -532,8 +543,8 @@ def cond_rnn_coupling(x, conditioning, rnn_class, name='cond_rnn_coupling'):
                 x_t = z_t - m_t
                 x_list.append(x_t)
             x = tf.concat(x_list, 1)
-        return x, conditioning
-    return z, conditioning, logdet, invmap
+        return x
+    return z, logdet, invmap
 
 
 def leaky_relu(x, alpha):
@@ -559,7 +570,7 @@ def leaky_transformation(x, alpha=None):
     return z, logdet, invmap
 
 
-def cond_leaky_transformation(x, conditioning, alpha=None):
+def cond_leaky_transformation(x, conditioning, cond_info_mask, alpha=None):
     d = tf.shape(x)[1]
     if alpha is None:
         alpha = tf.nn.sigmoid(
@@ -575,7 +586,7 @@ def cond_leaky_transformation(x, conditioning, alpha=None):
     def invmap(z, conditioning):
         return tf.minimum(z, z / alpha), conditioning
 
-    return z, conditioning, logdet, invmap
+    return z, logdet, invmap
 
 # %% NICE/NVP transformation function.
 #
@@ -615,6 +626,7 @@ def additive_coupling(x, hidden_sizes, irange=None, output_irange=None,
     return y, logdet, invmap
 
 
+# does not have -1 change yet
 def cond_additive_coupling(x, conditioning, hidden_sizes, irange=None, output_irange=None,
                            activation=tf.nn.relu, name='cond_additive_coupling'):
     if irange is not None:
@@ -694,13 +706,13 @@ def cond_additive_coupling(x, conditioning, hidden_sizes, irange=None, output_ir
                 zc -= m
             z = tf.matmul(perm, tf.expand_dims(zc, axis=-1))
             z = tf.squeeze(z, axis=-1)
-        return z, conditioning
-    return x, conditioning, logdet, invmap
+        return z
+    return x, logdet, invmap
 
 
 # %% Conditional based transformation
 #
-def conditioning_transformation(x, conditioning, hidden_sizes,
+def conditioning_transformation(x, conditioning, cond_info_mask, hidden_sizes,
                                 irange=None, output_irange=None,
                                 activation=tf.nn.tanh,
                                 name='cond_trans'):
@@ -737,7 +749,9 @@ def conditioning_transformation(x, conditioning, hidden_sizes,
         initializer = None
     with tf.variable_scope(name, initializer=initializer) as scope:
         d = int(x.get_shape()[1])
-        ms = nn.fc_network(conditioning, 2 * d, hidden_sizes=hidden_sizes,
+
+        ms = nn.fc_network(_combine_with_cond_info(conditioning, cond_info_mask), 
+                           2 * d, hidden_sizes=hidden_sizes,
                            output_init_range=0,
                            activation=activation, name='ms')
         m, s = tf.split(ms, 2, 1)
@@ -760,9 +774,9 @@ def conditioning_transformation(x, conditioning, hidden_sizes,
             s = tf.einsum('nd,ndi->ni', s, t)
             m = tf.einsum('nd,ndi->ni', m, t)
             x = tf.div(y - m, tf.exp(s))
-        return x, conditioning
+        return x
 
-    return y, conditioning, logdet, invmap
+    return y, logdet, invmap
 
 
 # %% Simple Transformations.
@@ -814,7 +828,7 @@ def log_rescale(x, init_zeros=True, name='rescale'):
     return y, logdet, invmap
 
 
-def cond_log_rescale(x, conditioning, init_zeros=True, name='cond_rescale'):
+def cond_log_rescale(x, conditioning, cond_info_mask, init_zeros=True, name='cond_rescale'):
     with tf.variable_scope(name) as scope:
         N = tf.shape(x)[0]
         d = int(x.get_shape()[1])
@@ -841,9 +855,9 @@ def cond_log_rescale(x, conditioning, init_zeros=True, name='cond_rescale'):
             s_tiled = tf.tile(s, [N, 1])
             su = tf.batch_gather(s_tiled, ind)
             x = tf.divide(y, tf.exp(su), name='y_inv')
-        return x, conditioning
+        return x
 
-    return y, conditioning, logdet, invmap
+    return y, logdet, invmap
 
 
 def shift(x, init_zeros=True, name='shift'):
@@ -910,7 +924,7 @@ def logit_transform(x, alpha=0.05, max_val=256.0, name='logit_transform',
 # %% Transformation composition
 #
 # TODO: test to see if gives back identity with inverse.
-def transformer(inputs, transformations, conditioning=None):
+def transformer(inputs, transformations, conditioning=None, cond_info_mask=None):
     """Makes transormation on the r.v. X
     Args:
         inputs: N x d tensor of inputs
@@ -932,7 +946,7 @@ def transformer(inputs, transformations, conditioning=None):
     for i, trans in enumerate(transformations):
         with tf.variable_scope('transformation_{}'.format(i)):
             try:
-                y, conditioning, ldet, imap = trans(y, conditioning)
+                y, ldet, imap = trans(y, conditioning, cond_info_mask)
             except TypeError:  # Does not take in conditioning values.
                 y, ldet, imap = trans(y)
             logdet += ldet
@@ -946,7 +960,7 @@ def transformer(inputs, transformations, conditioning=None):
         for i in range(ntrans - 1, -1, -1):
             with tf.variable_scope('transformation_{}'.format(i)):
                 try:
-                    z, conditioning = invmaps[i](z, conditioning)
+                    z = invmaps[i](z, conditioning)
                 except TypeError:  # Does not take in conditioning values.
                     z = invmaps[i](z)
         return z

@@ -2,7 +2,7 @@ from abc import ABCMeta, abstractmethod
 import tensorflow as tf
 import numpy as np
 from ..utils import nn
-from . import transforms as trans
+from . import transforms as trans, _combine_with_cond_info
 from . import likelihoods as likes
 from . import conditionals as conds
 
@@ -96,6 +96,9 @@ class TANModel(Model):
         # Flatten to trest as real vector.
         inputs = tf.reshape(inputs, (-1, np.prod(inputs_shape)), 'inputs_flat')
         self.d = int(inputs.get_shape()[1])
+        cond_info_mask = conditioning[:, 2*self.d:]
+        conditioning = conditioning[:, :2*self.d]
+
 
         # Sampling extreneous coditioning values.
         if sampler_conditioning is None:
@@ -113,7 +116,8 @@ class TANModel(Model):
         ) as trans_scope:
             self.z, self.logdet, self.invmap = trans.transformer(
                 inputs, self.transformations,
-                conditioning if self.trans_conditioning else None)
+                conditioning if self.trans_conditioning else None,
+                cond_info_mask if self.trans_conditioning else None)
 
         # Get conditional parameters, feed through more layers
         # TODO: Regularizer option
@@ -159,7 +163,7 @@ class TANModel(Model):
 
             self.cond_inputs, self.cond_targets = conds.make_in_out(self.z)
             self.cond_params, self.cond_sampler = self.conditional_model(
-                self.cond_inputs, param_func, conditioning)
+                self.cond_inputs, param_func, _combine_with_cond_info(conditioning, cond_info_mask))
             # Make transformed space samples.
             self.z_samples, self.z_means = self.cond_sampler(
                 self.sample_size, self.base_distribution, sampler_conditioning)
